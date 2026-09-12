@@ -152,11 +152,11 @@ export async function assignRecoveryWorker(missedPickupId: string, workerId: str
       .maybeSingle();
 
     if (worker) {
-      await supabase.from('notifications').insert({
-        profile_id: worker.profile_id,
-        title: 'Recovery Assignment',
-        message: 'You have been assigned a missed pickup recovery task.',
-        type: 'recovery',
+      await supabase.rpc('create_notification', {
+        target_profile_id: worker.profile_id,
+        p_title: 'Recovery Assignment',
+        p_message: 'You have been assigned a missed pickup recovery task.',
+        p_type: 'recovery',
       });
     }
   }
@@ -193,11 +193,11 @@ export async function assignCleanupWorker(hotspotReportId: string, workerId: str
     .maybeSingle();
 
   if (worker) {
-    await supabase.from('notifications').insert({
-      profile_id: worker.profile_id,
-      title: 'Cleanup Assignment',
-      message: 'You have been assigned a hotspot cleanup task.',
-      type: 'hotspot',
+    await supabase.rpc('create_notification', {
+      target_profile_id: worker.profile_id,
+      p_title: 'Cleanup Assignment',
+      p_message: 'You have been assigned a hotspot cleanup task.',
+      p_type: 'hotspot',
     });
   }
 
@@ -291,14 +291,66 @@ export async function toggleWorkerActive(workerId: string, isActive: boolean) {
   return data;
 }
 
-export async function assignRoute(wardId: string, workerId: string, dayOfWeek: string, startTime: string, endTime: string) {
+export async function getHouseholdsInWard(wardId: string) {
   const { data, error } = await supabase
+    .from('households')
+    .select('id, address_line, landmark')
+    .eq('ward_id', wardId)
+    .order('address_line', { ascending: true });
+  if (error) throw error;
+  return data as { id: string; address_line: string; landmark: string | null }[];
+}
+
+export async function assignRoute(
+  wardId: string,
+  workerId: string,
+  dayOfWeek: string,
+  startTime: string,
+  endTime: string,
+  householdIds: string[]
+) {
+  const { data: route, error } = await supabase
     .from('routes')
     .insert({ ward_id: wardId, worker_id: workerId, day_of_week: dayOfWeek, collection_window_start: startTime, collection_window_end: endTime })
     .select()
     .maybeSingle();
   if (error) throw error;
-  return data;
+  if (!route) return route;
+
+  // Only the households the supervisor actually picked go on this route.
+  if (!householdIds || householdIds.length === 0) return route;
+
+  const routeHouseholds = householdIds.map((id, i) => ({
+    route_id: route.id,
+    household_id: id,
+    sequence_order: i,
+  }));
+  const { error: rhErr } = await supabase.from('route_households').insert(routeHouseholds);
+  if (rhErr) throw rhErr;
+
+  // Generate a collection task for each selected household on the next
+  // occurrence of this route's day of week, so the route isn't just metadata.
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const targetDay = dayNames.indexOf(dayOfWeek.toLowerCase());
+  const today = new Date();
+  const scheduledDate = new Date(today);
+  if (targetDay >= 0) {
+    const diff = (targetDay - today.getDay() + 7) % 7;
+    scheduledDate.setDate(today.getDate() + diff);
+  }
+  const dateStr = scheduledDate.toISOString().slice(0, 10);
+
+  const tasks = householdIds.map((id) => ({
+    route_id: route.id,
+    household_id: id,
+    worker_id: workerId,
+    scheduled_date: dateStr,
+    status: 'scheduled' as const,
+  }));
+  const { error: taskErr } = await supabase.from('collection_tasks').insert(tasks);
+  if (taskErr) throw taskErr;
+
+  return route;
 }
 
 export async function scheduleEwaste(requestId: string, date: string, workerId: string) {
@@ -309,5 +361,22 @@ export async function scheduleEwaste(requestId: string, date: string, workerId: 
     .select()
     .maybeSingle();
   if (error) throw error;
+
+  // Notify the assigned worker
+  const { data: worker } = await supabase
+    .from('workers')
+    .select('profile_id')
+    .eq('id', workerId)
+    .maybeSingle();
+
+  if (worker) {
+    await supabase.rpc('create_notification', {
+      target_profile_id: worker.profile_id,
+      p_title: 'E-Waste Pickup Scheduled',
+      p_message: `E-waste pickup scheduled for ${date}.`,
+      p_type: 'ewaste',
+    });
+  }
+
   return data;
 }
