@@ -43,9 +43,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
       if (session?.user) {
+        // Supabase re-validates the session (and fires this event) whenever
+        // the tab regains focus. Skip re-fetching the profile for that case
+        // so switching tabs doesn't retrigger every dashboard's data fetch.
+        if (event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') return;
         (async () => {
           await fetchProfile(session.user.id);
         })();

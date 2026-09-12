@@ -14,12 +14,12 @@ const iconMap: Record<string, typeof Bell> = {
 };
 
 const colorMap: Record<string, string> = {
-  reminder: 'text-amber-600 bg-amber-50',
-  missed: 'text-red-600 bg-red-50',
-  recovery: 'text-blue-600 bg-blue-50',
-  hotspot: 'text-purple-600 bg-purple-50',
-  ewaste: 'text-teal-600 bg-teal-50',
-  status: 'text-emerald-600 bg-emerald-50',
+  reminder: 'text-clay-dark bg-clay/10',
+  missed: 'text-brick bg-brick/10',
+  recovery: 'text-forest bg-moss/15',
+  hotspot: 'text-ink/70 bg-sand',
+  ewaste: 'text-forest bg-forest/10',
+  status: 'text-forest bg-moss/15',
 };
 
 function timeAgo(date: string): string {
@@ -71,11 +71,11 @@ export default function NotificationBell() {
             setTimeout(handleMarkAll, 1000);
           }
         }}
-        className="relative p-2 rounded-lg hover:bg-gray-100 transition"
+        className="relative p-2 rounded-md hover:bg-forest-dark transition"
       >
-        <Bell className="w-5 h-5 text-gray-600" />
+        <Bell className="w-5 h-5 text-paper/80" />
         {unread > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-brick text-paper text-[10px] font-bold flex items-center justify-center">
             {unread > 9 ? '9+' : unread}
           </span>
         )}
@@ -84,33 +84,33 @@ export default function NotificationBell() {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-white rounded-xl shadow-xl border border-gray-100 z-50">
-            <div className="p-3 border-b border-gray-100 flex items-center justify-between">
-              <span className="font-semibold text-gray-900 text-sm">Notifications</span>
+          <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto glass rounded-lg shadow-lg border border-white/40 z-50">
+            <div className="p-3 border-b border-sand flex items-center justify-between">
+              <span className="font-display font-semibold text-ink text-sm">Notifications</span>
               {unread > 0 && (
-                <button onClick={handleMarkAll} className="text-xs text-teal-600 font-medium hover:underline">
+                <button onClick={handleMarkAll} className="text-xs text-forest font-medium hover:underline">
                   Mark all read
                 </button>
               )}
             </div>
             {notifications.length === 0 ? (
-              <div className="p-8 text-center text-gray-400 text-sm">
+              <div className="p-8 text-center text-ink/40 text-sm">
                 <Bell className="w-8 h-8 mx-auto mb-2 opacity-40" />
                 No notifications yet
               </div>
             ) : (
-              <div className="divide-y divide-gray-50">
+              <div className="divide-y divide-sand-light">
                 {notifications.slice(0, 20).map((n) => {
                   const Icon = iconMap[n.type] || Bell;
                   return (
-                    <div key={n.id} className={`p-3 flex gap-3 ${!n.is_read ? 'bg-teal-50/40' : ''}`}>
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${colorMap[n.type] || 'text-gray-600 bg-gray-50'}`}>
+                    <div key={n.id} className={`p-3 flex gap-3 ${!n.is_read ? 'bg-moss/10' : ''}`}>
+                      <div className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 ${colorMap[n.type] || 'text-ink/60 bg-sand-light'}`}>
                         <Icon className="w-4 h-4" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900">{n.title}</p>
-                        {n.message && <p className="text-xs text-gray-500 mt-0.5">{n.message}</p>}
-                        <p className="text-[10px] text-gray-400 mt-1">{timeAgo(n.created_at)}</p>
+                        <p className="text-sm font-medium text-ink">{n.title}</p>
+                        {n.message && <p className="text-xs text-ink/50 mt-0.5">{n.message}</p>}
+                        <p className="text-[10px] text-ink/40 mt-1">{timeAgo(n.created_at)}</p>
                       </div>
                     </div>
                   );
