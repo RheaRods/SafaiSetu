@@ -14,11 +14,28 @@ export async function getMunicipalityWards(municipalityId: string) {
 export async function getWorkers(municipalityId: string) {
   const { data, error } = await supabase
     .from('workers')
-    .select('*, profile:profiles(*)')
+    .select('*, profile:profiles(*), assigned_ward:wards(name)')
     .eq('municipality_id', municipalityId)
     .order('created_at', { ascending: true });
   if (error) throw error;
   return data as (Worker & { profile: { full_name: string; phone: string | null } })[];
+}
+
+export async function getRoutesOverview(municipalityId: string) {
+  const { data: wards } = await supabase
+    .from('wards')
+    .select('id')
+    .eq('municipality_id', municipalityId);
+  const wardIds = (wards ?? []).map((w) => w.id);
+  if (wardIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from('routes')
+    .select('*, ward:wards(name), route_households(household:households(id, address_line, landmark))')
+    .in('ward_id', wardIds)
+    .order('day_of_week', { ascending: true });
+  if (error) throw error;
+  return data as any[];
 }
 
 export async function getTodayProgress(municipalityId: string) {
@@ -351,6 +368,66 @@ export async function assignRoute(
   if (taskErr) throw taskErr;
 
   return route;
+}
+
+export async function getTodayTasks(municipalityId: string) {
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data: wards } = await supabase
+    .from('wards')
+    .select('id')
+    .eq('municipality_id', municipalityId);
+  const wardIds = (wards ?? []).map((w) => w.id);
+  if (wardIds.length === 0) return [];
+
+  const { data: households } = await supabase
+    .from('households')
+    .select('id')
+    .in('ward_id', wardIds);
+  const householdIds = (households ?? []).map((h) => h.id);
+  if (householdIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from('collection_tasks')
+    .select('*, household:households(*), worker:workers(*, profile:profiles(*))')
+    .in('household_id', householdIds)
+    .eq('scheduled_date', today)
+    .order('status', { ascending: true });
+  if (error) throw error;
+  return data as any[];
+}
+
+export async function rescheduleTask(taskId: string, newDate: string, newWorkerId?: string) {
+  const update: Record<string, any> = { scheduled_date: newDate, status: 'scheduled' };
+  if (newWorkerId) update.worker_id = newWorkerId;
+
+  const { data, error } = await supabase
+    .from('collection_tasks')
+    .update(update)
+    .eq('id', taskId)
+    .select()
+    .maybeSingle();
+  if (error) throw error;
+
+  // Notify whichever worker ends up on the task (new one if reassigned, same one otherwise).
+  if (data) {
+    const { data: worker } = await supabase
+      .from('workers')
+      .select('profile_id')
+      .eq('id', data.worker_id)
+      .maybeSingle();
+
+    if (worker) {
+      await supabase.rpc('create_notification', {
+        target_profile_id: worker.profile_id,
+        p_title: 'Task Rescheduled',
+        p_message: `A collection task has been rescheduled to ${newDate}.`,
+        p_type: 'status',
+      });
+    }
+  }
+
+  return data;
 }
 
 export async function scheduleEwaste(requestId: string, date: string, workerId: string) {

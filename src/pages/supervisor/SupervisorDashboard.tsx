@@ -9,22 +9,25 @@ import {
 } from 'recharts';
 import {
   Users, CheckCircle2, AlertTriangle, MapPin, Trash2, RefreshCw, X,
-  TrendingUp, Activity, Ban, Check, Calendar, ChevronRight
+  TrendingUp, Activity, Ban, Check, Calendar, ChevronRight, ClipboardList, Route
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import {
   getTodayProgress, getMissedPickupQueue, getHotspotQueue, getEwasteRequests,
   assignRecoveryWorker, rejectMissedPickup, assignCleanupWorker,
-  toggleWorkerActive, getWorkers, getWeeklyStats, scheduleEwaste, assignRoute, getHouseholdsInWard
+  toggleWorkerActive, getWorkers, getWeeklyStats, scheduleEwaste, assignRoute, getHouseholdsInWard,
+  getTodayTasks, rescheduleTask, getRoutesOverview
 } from '@/services/supervisorService';
 import type { Worker, HotspotReport, MissedPickup, EwasteRequest } from '@/types';
 
-type Tab = 'overview' | 'progress' | 'missed' | 'hotspots' | 'ewaste' | 'workers' | 'charts' | 'map';
+type Tab = 'overview' | 'progress' | 'tasks' | 'areas' | 'missed' | 'hotspots' | 'ewaste' | 'workers' | 'charts' | 'map';
 
 export default function SupervisorDashboard() {
   const { profile } = useAuth();
   const [tab, setTab] = useState<Tab>('overview');
   const [progress, setProgress] = useState<any[]>([]);
+  const [todayTasks, setTodayTasks] = useState<any[]>([]);
+  const [routes, setRoutes] = useState<any[]>([]);
   const [missedQueue, setMissedQueue] = useState<any[]>([]);
   const [hotspotQueue, setHotspotQueue] = useState<HotspotReport[]>([]);
   const [ewasteReqs, setEwasteReqs] = useState<any[]>([]);
@@ -33,22 +36,27 @@ export default function SupervisorDashboard() {
   const [municipalityName, setMunicipalityName] = useState('');
   const [loading, setLoading] = useState(true);
   const [assignModal, setAssignModal] = useState<{ type: 'recovery' | 'cleanup' | 'ewaste' | 'route'; id: string } | null>(null);
+  const [rescheduleModal, setRescheduleModal] = useState<{ taskId: string } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
   if (!profile?.municipality_id) return;
   setLoading(true);
   try {
-  const [prog, missed, hotspots, ewaste, wks, st, muni] = await Promise.all([
+  const [prog, tasks, missed, hotspots, ewaste, wks, st, muni, routesOverview] = await Promise.all([
   getTodayProgress(profile.municipality_id),
+  getTodayTasks(profile.municipality_id),
   getMissedPickupQueue(profile.municipality_id),
   getHotspotQueue(profile.municipality_id),
   getEwasteRequests(profile.municipality_id),
   getWorkers(profile.municipality_id),
   getWeeklyStats(profile.municipality_id),
   supabase.from('municipalities').select('name').eq('id', profile.municipality_id).maybeSingle(),
+  getRoutesOverview(profile.municipality_id),
   ]);
   setProgress(prog || []);
+  setTodayTasks(tasks || []);
+  setRoutes(routesOverview || []);
   setMissedQueue(missed || []);
   setHotspotQueue(hotspots || []);
   setEwasteReqs(ewaste || []);
@@ -72,6 +80,7 @@ export default function SupervisorDashboard() {
   .on('postgres_changes', { event: '*', schema: 'public', table: 'missed_pickups' }, () => fetchAll())
   .on('postgres_changes', { event: '*', schema: 'public', table: 'hotspot_reports' }, () => fetchAll())
   .on('postgres_changes', { event: '*', schema: 'public', table: 'ewaste_requests' }, () => fetchAll())
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'routes' }, () => fetchAll())
   .subscribe();
 
   return () => { channel.unsubscribe(); };
@@ -136,6 +145,15 @@ export default function SupervisorDashboard() {
     } catch (err) { showToast('Failed to assign route'); }
   };
 
+  const handleReschedule = async (taskId: string, newDate: string, newWorkerId: string) => {
+    try {
+      await rescheduleTask(taskId, newDate, newWorkerId);
+      showToast('Task rescheduled');
+      setRescheduleModal(null);
+      fetchAll();
+    } catch (err) { showToast('Failed to reschedule task'); }
+  };
+
   if (loading) return <AppShell><LoadingSpinner /></AppShell>;
 
   const totalHouseholds = progress.reduce((sum, p) => sum + p.total, 0);
@@ -147,6 +165,8 @@ export default function SupervisorDashboard() {
   const tabs: [Tab, string, typeof Users][] = [
   ['overview', 'Overview', Activity],
   ['progress', 'Live Progress', TrendingUp],
+  ['tasks', "Today's Tasks", ClipboardList],
+  ['areas', 'Worker Areas', Route],
   ['missed', 'Missed Pickups', AlertTriangle],
   ['hotspots', 'Hotspots', MapPin],
   ['ewaste', 'E-Waste', Trash2],
@@ -300,6 +320,74 @@ export default function SupervisorDashboard() {
   </div>
   </Card>
   ))
+  )}
+  </div>
+  )}
+
+  {tab === 'tasks' && (
+  <div className="space-y-3">
+  {todayTasks.length === 0 ? (
+  <EmptyState icon={ClipboardList} title="No tasks today" message="No collection tasks are scheduled for today." />
+  ) : (
+  todayTasks.map((t) => (
+  <Card key={t.id} className="p-4">
+  <div className="flex items-start justify-between gap-3">
+  <div className="min-w-0">
+  <p className="font-semibold text-ink truncate">{t.household?.address_line}</p>
+  {t.household?.landmark && <p className="text-sm text-ink/40">{t.household.landmark}</p>}
+  <p className="text-xs text-ink/50 mt-1">
+  {t.worker?.profile?.full_name || 'Unassigned'} • {t.scheduled_date}
+  </p>
+  {t.worker_note && <p className="text-sm text-ink/60 mt-1.5">{t.worker_note}</p>}
+  </div>
+  <StatusBadge status={t.status} />
+  </div>
+  {t.status !== 'collected' && (
+  <button
+  onClick={() => setRescheduleModal({ taskId: t.id })}
+  className="w-full flex items-center justify-center gap-1.5 bg-clay hover:bg-clay-dark text-white text-sm font-medium py-2 rounded-lg transition mt-3"
+  >
+  <RefreshCw className="w-4 h-4" />
+  Reschedule
+  </button>
+  )}
+  </Card>
+  ))
+  )}
+  </div>
+  )}
+
+  {tab === 'areas' && (
+  <div className="space-y-3">
+  {workers.length === 0 ? (
+  <EmptyState icon={Route} title="No workers" message="Add workers before assigning areas." />
+  ) : (
+  workers.map((w) => {
+  const workerRoutes = routes.filter((r) => r.worker_id === w.id);
+  return (
+  <Card key={w.id} className="p-4">
+  <div className="flex items-center gap-3 mb-3">
+  <div className="w-10 h-10 rounded-full bg-clay/10 flex items-center justify-center flex-shrink-0">
+  <span className="font-bold text-clay-dark">{w.profile?.full_name?.charAt(0)}</span>
+  </div>
+  <div className="flex-1 min-w-0">
+  <p className="font-semibold text-ink truncate">{w.profile?.full_name}</p>
+  <p className="text-xs text-ink/40">{w.assigned_ward?.name ? `Ward: ${w.assigned_ward.name}` : 'No ward assigned'}</p>
+  </div>
+  {!w.is_active && <span className="text-xs px-2 py-0.5 rounded-full bg-sand text-ink/50 flex-shrink-0">Inactive</span>}
+  </div>
+  {workerRoutes.length === 0 ? (
+  <p className="text-sm text-ink/40">No area/route assigned yet.</p>
+  ) : (
+  <div className="space-y-2">
+  {workerRoutes.map((r) => (
+  <RouteRow key={r.id} route={r} />
+  ))}
+  </div>
+  )}
+  </Card>
+  );
+  })
   )}
   </div>
   )}
@@ -557,6 +645,15 @@ export default function SupervisorDashboard() {
           workers={workers}
           onClose={() => setAssignModal(null)}
           onAssign={handleAssignRoute}
+        />
+      )}
+
+      {rescheduleModal && (
+        <RescheduleModal
+          task={todayTasks.find((t) => t.id === rescheduleModal.taskId)}
+          workers={workers}
+          onClose={() => setRescheduleModal(null)}
+          onReschedule={handleReschedule}
         />
       )}
 
@@ -819,6 +916,121 @@ function RouteAssignModal({ workerId, workers, onClose, onAssign }: {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function RescheduleModal({ task, workers, onClose, onReschedule }: {
+  task: any;
+  workers: any[];
+  onClose: () => void;
+  onReschedule: (taskId: string, newDate: string, newWorkerId: string) => void;
+}) {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const [newDate, setNewDate] = useState(tomorrow.toISOString().split('T')[0]);
+  const [newWorkerId, setNewWorkerId] = useState(task?.worker_id || '');
+
+  const activeWorkers = workers.filter((w) => w.is_active);
+
+  if (!task) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-sand">
+          <h2 className="font-semibold text-ink">Reschedule Task</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-sand-light transition">
+            <X className="w-5 h-5 text-ink/50" />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <p className="text-sm font-medium text-ink/70">{task.household?.address_line}</p>
+            {task.household?.landmark && <p className="text-xs text-ink/40">{task.household.landmark}</p>}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-ink/70 mb-1.5">New Date</label>
+            <input
+              type="date"
+              value={newDate}
+              onChange={(e) => setNewDate(e.target.value)}
+              min={new Date().toISOString().split('T')[0]}
+              className="w-full p-2.5 rounded-lg border border-sand-dark focus:border-forest focus:ring-2 focus:ring-moss/20 outline-none transition"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-ink/70 mb-2">Assign To</label>
+            {activeWorkers.length === 0 ? (
+              <p className="text-sm text-ink/40">No active workers available</p>
+            ) : (
+              <div className="space-y-2">
+                {activeWorkers.map((w) => (
+                  <button
+                    key={w.id}
+                    onClick={() => setNewWorkerId(w.id)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition ${
+                      newWorkerId === w.id ? 'border-forest bg-moss/10' : 'border-sand hover:border-sand-dark'
+                    }`}
+                  >
+                    <div className="w-9 h-9 rounded-full bg-clay/10 flex items-center justify-center">
+                      <span className="text-sm font-bold text-clay-dark">{w.profile?.full_name?.charAt(0)}</span>
+                    </div>
+                    <div className="text-left">
+                      <p className="text-sm font-medium text-ink/70">{w.profile?.full_name}</p>
+                      {w.id === task.worker_id && <p className="text-xs text-forest">Currently assigned</p>}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={() => newWorkerId && onReschedule(task.id, newDate, newWorkerId)}
+            disabled={!newWorkerId}
+            className="w-full bg-forest hover:bg-forest-dark text-white font-medium py-2.5 rounded-lg transition disabled:opacity-50"
+          >
+            Reschedule Task
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RouteRow({ route }: { route: any }) {
+  const [expanded, setExpanded] = useState(false);
+  const households = (route.route_households || [])
+    .map((rh: any) => rh.household)
+    .filter(Boolean);
+
+  return (
+    <div className="p-3 rounded-lg bg-paper">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-ink capitalize">{route.day_of_week}</p>
+          <p className="text-xs text-ink/40">
+            {route.collection_window_start}–{route.collection_window_end} • {route.ward?.name} • {households.length} household{households.length === 1 ? '' : 's'}
+          </p>
+        </div>
+        {households.length > 0 && (
+          <button onClick={() => setExpanded(!expanded)} className="text-xs text-forest font-medium hover:underline flex-shrink-0">
+            {expanded ? 'Hide' : 'View'} list
+          </button>
+        )}
+      </div>
+      {expanded && (
+        <ul className="mt-2 pt-2 border-t border-sand-dark space-y-1">
+          {households.map((h: any) => (
+            <li key={h.id} className="text-xs text-ink/60">
+              {h.address_line}{h.landmark ? ` • ${h.landmark}` : ''}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
