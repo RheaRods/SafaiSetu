@@ -5,9 +5,10 @@ import { Card, PageHeader, LoadingSpinner, EmptyState, StatusBadge } from '@/com
 import MapView from '@/components/MapView';
 import {
   Route as RouteIcon, CheckCircle2, XCircle, MapPin, Clock, Users,
-  Play, AlertTriangle, RefreshCw, Trash2, Camera, ChevronRight, X, Navigation
+  AlertTriangle, RefreshCw, Trash2, Camera, X, Road, Truck, ShieldAlert, PackageOpen
 } from 'lucide-react';
 import { getWorkerByProfile, getTodayTasks, updateTaskStatus, getRecoveryAssignments, completeRecovery, getCleanupAssignments, completeCleanup } from '@/services/workerService';
+import { supabase } from '@/lib/supabase';
 import type { Worker, CollectionStatus } from '@/types';
 
 type Tab = 'tasks' | 'recovery' | 'cleanup' | 'map';
@@ -20,8 +21,8 @@ export default function WorkerDashboard() {
   const [recoveries, setRecoveries] = useState<any[]>([]);
   const [cleanups, setCleanups] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showMap, setShowMap] = useState(false);
   const [obstacleModal, setObstacleModal] = useState<string | null>(null);
+  const [cleanupModal, setCleanupModal] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
@@ -48,6 +49,17 @@ export default function WorkerDashboard() {
   }, [profile]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // Realtime: update when tasks, missed pickups, or cleanup assignments change
+  useEffect(() => {
+    if (!profile) return;
+    const channel = supabase.channel('worker-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'collection_tasks' }, () => fetchAll())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'missed_pickups' }, () => fetchAll())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cleanup_assignments' }, () => fetchAll())
+      .subscribe();
+    return () => { channel.unsubscribe(); };
+  }, [profile, fetchAll]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -93,10 +105,11 @@ export default function WorkerDashboard() {
     }
   };
 
-  const handleCompleteCleanup = async (id: string) => {
+  const handleCompleteCleanup = async (id: string, photoUrl?: string) => {
     try {
-      await completeCleanup(id);
+      await completeCleanup(id, photoUrl);
       showToast('Cleanup completed');
+      setCleanupModal(null);
       fetchAll();
     } catch (err) {
       showToast('Failed to complete cleanup');
@@ -294,7 +307,7 @@ export default function WorkerDashboard() {
                   <StatusBadge status={c.status} />
                 </div>
                 <button
-                  onClick={() => handleCompleteCleanup(c.id)}
+                  onClick={() => setCleanupModal(c.id)}
                   className="mt-2 w-full flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white font-medium py-2.5 rounded-lg transition"
                 >
                   <Camera className="w-4 h-4" />
@@ -328,6 +341,13 @@ export default function WorkerDashboard() {
         <ObstacleModal
           onClose={() => setObstacleModal(null)}
           onSubmit={(status, note) => handleObstacle(obstacleModal, status, note)}
+        />
+      )}
+
+      {cleanupModal && (
+        <CleanupModal
+          onClose={() => setCleanupModal(null)}
+          onComplete={(photoUrl) => handleCompleteCleanup(cleanupModal, photoUrl)}
         />
       )}
 
@@ -403,6 +423,14 @@ function ObstacleModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (
     { value: 'missed', label: 'Other Issue', desc: 'Any other reason for not collecting' },
   ];
 
+  // The worker_note field captures structured obstacle info
+  const obstacles: { value: string; label: string; desc: string }[] = [
+    { value: 'Blocked road', label: 'Blocked Road', desc: 'Road is blocked preventing access' },
+    { value: 'Vehicle breakdown', label: 'Vehicle Breakdown', desc: 'Collection vehicle has broken down' },
+    { value: 'Safety concern', label: 'Safety Concern', desc: 'Unsafe area to collect from' },
+    { value: 'Heavy waste needs extra help', label: 'Heavy Waste', desc: 'Waste is too heavy, needs additional help' },
+  ];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
@@ -413,6 +441,7 @@ function ObstacleModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (
           </button>
         </div>
         <div className="p-5 space-y-3">
+          <p className="text-sm font-medium text-gray-700">Collection Issue</p>
           {options.map((o) => (
             <button
               key={o.value}
@@ -420,6 +449,18 @@ function ObstacleModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (
               className={`w-full text-left p-3 rounded-lg border-2 transition ${
                 status === o.value ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'
               }`}
+            >
+              <p className="text-sm font-medium text-gray-700">{o.label}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{o.desc}</p>
+            </button>
+          ))}
+          <p className="text-sm font-medium text-gray-700 pt-2">Obstacle Type (optional)</p>
+          {obstacles.map((o) => (
+            <button
+              key={o.value}
+              onClick={() => setNote(o.value)}
+              className={`w-full text-left p-3 rounded-lg border-2 transition ${
+                note === o.value ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}
             >
               <p className="text-sm font-medium text-gray-700">{o.label}</p>
               <p className="text-xs text-gray-400 mt-0.5">{o.desc}</p>
@@ -437,6 +478,75 @@ function ObstacleModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (
             className="w-full bg-orange-500 hover:bg-orange-600 text-white font-medium py-2.5 rounded-lg transition"
           >
             Submit Report
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CleanupModal({ onClose, onComplete }: { onClose: () => void; onComplete: (photoUrl?: string) => void }) {
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPhotoFile(file);
+      setPhotoPreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleComplete = async () => {
+    setUploading(true);
+    let photoUrl: string | undefined;
+    if (photoFile) {
+      const fileName = `cleanup_${Date.now()}.${photoFile.name.split('.').pop()}`;
+      const { error } = await supabase.storage.from('cleanup-photos').upload(fileName, photoFile);
+      if (!error) {
+        const { data } = supabase.storage.from('cleanup-photos').getPublicUrl(fileName);
+        photoUrl = data.publicUrl;
+      }
+    }
+    setUploading(false);
+    onComplete(photoUrl);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+          <h2 className="font-semibold text-gray-900">Complete Cleanup</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <p className="text-sm text-gray-500">Upload a completion photo as evidence of the cleanup.</p>
+          {photoPreview ? (
+            <div className="relative">
+              <img src={photoPreview} alt="Preview" className="w-full rounded-lg max-h-48 object-cover" />
+              <button
+                onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
+                className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/50 text-white hover:bg-black/70 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <label className="flex flex-col items-center justify-center gap-2 p-6 rounded-lg border-2 border-dashed border-gray-300 cursor-pointer hover:border-orange-400 transition">
+              <Camera className="w-6 h-6 text-gray-400" />
+              <span className="text-sm text-gray-500">Tap to add a completion photo</span>
+              <input type="file" accept="image/*" onChange={handlePhotoSelect} className="hidden" />
+            </label>
+          )}
+          <button
+            onClick={handleComplete}
+            disabled={uploading}
+            className="w-full bg-orange-600 hover:bg-orange-700 text-white font-medium py-2.5 rounded-lg transition disabled:opacity-50"
+          >
+            {uploading ? 'Uploading...' : 'Complete Cleanup'}
           </button>
         </div>
       </div>

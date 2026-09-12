@@ -74,7 +74,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     if (error) return { error: error.message };
     if (data.user) {
+      // Wait briefly for the DB trigger to create the profile row
+      await new Promise((r) => setTimeout(r, 500));
       await fetchProfile(data.user.id);
+
+      // Create role-specific records
+      if (role === 'household') {
+        await supabase.from('households').insert({
+          profile_id: data.user.id,
+          address_line: 'Please update your address',
+          waste_type: 'both',
+        });
+      } else if (role === 'worker') {
+        // Worker record needs a municipality_id — supervisor must assign later
+        // For now, skip; supervisor can add them via the worker management UI
+      }
     }
     return { error: null };
   };

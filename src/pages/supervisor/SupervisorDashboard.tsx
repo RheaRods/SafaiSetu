@@ -15,7 +15,7 @@ import { supabase } from '@/lib/supabase';
 import {
   getTodayProgress, getMissedPickupQueue, getHotspotQueue, getEwasteRequests,
   assignRecoveryWorker, rejectMissedPickup, assignCleanupWorker,
-  toggleWorkerActive, getWorkers, getWeeklyStats, scheduleEwaste
+  toggleWorkerActive, getWorkers, getWeeklyStats, scheduleEwaste, assignRoute
 } from '@/services/supervisorService';
 import type { Worker, HotspotReport, MissedPickup, EwasteRequest } from '@/types';
 
@@ -31,7 +31,7 @@ export default function SupervisorDashboard() {
   const [workers, setWorkers] = useState<any[]>([]);
   const [stats, setStats] = useState<{ daily: any[]; statusBreakdown: any[] }>({ daily: [], statusBreakdown: [] });
   const [loading, setLoading] = useState(true);
-  const [assignModal, setAssignModal] = useState<{ type: 'recovery' | 'cleanup' | 'ewaste'; id: string } | null>(null);
+  const [assignModal, setAssignModal] = useState<{ type: 'recovery' | 'cleanup' | 'ewaste' | 'route'; id: string } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
@@ -120,6 +120,18 @@ export default function SupervisorDashboard() {
       showToast(isActive ? 'Worker deactivated' : 'Worker activated');
       fetchAll();
     } catch (err) { showToast('Failed to update worker'); }
+  };
+
+  const handleAssignRoute = async (workerId: string, dayOfWeek: string, startTime: string, endTime: string) => {
+    try {
+      if (!profile?.municipality_id) return;
+      const { data: wards } = await supabase.from('wards').select('id').eq('municipality_id', profile.municipality_id).limit(1);
+      if (!wards || wards.length === 0) { showToast('No wards found'); return; }
+      await assignRoute(wards[0].id, workerId, dayOfWeek, startTime, endTime);
+      showToast('Route assigned successfully');
+      setAssignModal(null);
+      fetchAll();
+    } catch (err) { showToast('Failed to assign route'); }
   };
 
   if (loading) return <AppShell><LoadingSpinner /></AppShell>;
@@ -434,6 +446,13 @@ export default function SupervisorDashboard() {
                       {w.is_active ? 'Active' : 'Inactive'}
                     </span>
                     <button
+                      onClick={() => setAssignModal({ type: 'route', id: w.id })}
+                      className="p-2 rounded-lg text-blue-500 hover:bg-blue-50 transition"
+                      title="Assign route"
+                    >
+                      <Calendar className="w-4 h-4" />
+                    </button>
+                    <button
                       onClick={() => handleToggleWorker(w.id, w.is_active)}
                       className={`p-2 rounded-lg transition ${w.is_active ? 'text-red-500 hover:bg-red-50' : 'text-emerald-500 hover:bg-emerald-50'}`}
                     >
@@ -516,9 +535,9 @@ export default function SupervisorDashboard() {
         </Card>
       )}
 
-      {assignModal && (
+      {assignModal && assignModal.type !== 'route' && (
         <AssignModal
-          type={assignModal.type}
+          type={assignModal.type as 'recovery' | 'cleanup' | 'ewaste'}
           workers={workers}
           onClose={() => setAssignModal(null)}
           onAssign={assignModal.type === 'recovery'
@@ -527,6 +546,15 @@ export default function SupervisorDashboard() {
             ? (wid) => handleAssignCleanup(assignModal.id, wid)
             : (wid, date) => handleScheduleEwaste(assignModal.id, date || new Date().toISOString().split('T')[0], wid)
           }
+        />
+      )}
+
+      {assignModal && assignModal.type === 'route' && (
+        <RouteAssignModal
+          workerId={assignModal.id}
+          workers={workers}
+          onClose={() => setAssignModal(null)}
+          onAssign={handleAssignRoute}
         />
       )}
 
@@ -632,6 +660,77 @@ function AssignModal({ type, workers, onClose, onAssign }: {
             className="w-full bg-teal-600 hover:bg-teal-700 text-white font-medium py-2.5 rounded-lg transition disabled:opacity-50"
           >
             Confirm Assignment
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RouteAssignModal({ workerId, workers, onClose, onAssign }: {
+  workerId: string;
+  workers: any[];
+  onClose: () => void;
+  onAssign: (workerId: string, dayOfWeek: string, startTime: string, endTime: string) => void;
+}) {
+  const [dayOfWeek, setDayOfWeek] = useState('monday');
+  const [startTime, setStartTime] = useState('06:30');
+  const [endTime, setEndTime] = useState('08:00');
+
+  const worker = workers.find((w) => w.id === workerId);
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+          <h2 className="font-semibold text-gray-900">Assign Route to {worker?.profile?.full_name}</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Day of Week</label>
+            <div className="grid grid-cols-4 gap-2">
+              {days.map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setDayOfWeek(d)}
+                  className={`p-2 rounded-lg border-2 text-xs font-medium capitalize transition ${
+                    dayOfWeek === d ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 text-gray-500'
+                  }`}
+                >
+                  {d.slice(0, 3)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Start Time</label>
+              <input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="w-full p-2.5 rounded-lg border border-gray-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">End Time</label>
+              <input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className="w-full p-2.5 rounded-lg border border-gray-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition"
+              />
+            </div>
+          </div>
+          <button
+            onClick={() => onAssign(workerId, dayOfWeek, startTime, endTime)}
+            className="w-full bg-teal-600 hover:bg-teal-700 text-white font-medium py-2.5 rounded-lg transition"
+          >
+            Assign Route
           </button>
         </div>
       </div>

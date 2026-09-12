@@ -4,13 +4,14 @@ import AppShell from '@/components/AppShell';
 import { Card, PageHeader, LoadingSpinner, EmptyState, StatusBadge } from '@/components/ui';
 import {
   Calendar, Clock, Trash2, MapPin, AlertTriangle, Recycle, CheckCircle2,
-  History, ChevronRight, X
+  History, X, Camera, Upload
 } from 'lucide-react';
 import {
   getHousehold, getTodayTasks, getWeeklySchedule, getCollectionHistory,
   reportMissedPickup, requestEwastePickup, getEwasteRequests, getMissedPickups
 } from '@/services/householdService';
 import { createHotspotReport } from '@/services/hotspotService';
+import { supabase } from '@/lib/supabase';
 import MapView from '@/components/MapView';
 import type { Household, CollectionTask, EwasteRequest, MissedPickup, MissedReason, WasteCategory, UrgencyLevel } from '@/types';
 
@@ -57,6 +58,18 @@ export default function HouseholdDashboard() {
   }, [profile]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // Realtime: update when collection tasks or missed pickups change
+  useEffect(() => {
+    if (!profile) return;
+    const channel = supabase.channel('household-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'collection_tasks' }, () => fetchAll())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'missed_pickups' }, () => fetchAll())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ewaste_requests' }, () => fetchAll())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => fetchAll())
+      .subscribe();
+    return () => { channel.unsubscribe(); };
+  }, [profile, fetchAll]);
 
   if (loading) return <AppShell><LoadingSpinner /></AppShell>;
   if (!household) return (
@@ -400,6 +413,8 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
   const [urgency, setUrgency] = useState<UrgencyLevel>('medium');
   const [submitting, setSubmitting] = useState(false);
   const [useMyLocation, setUseMyLocation] = useState(false);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
   const categories: { value: WasteCategory; label: string }[] = [
     { value: 'mixed', label: 'Mixed' },
@@ -428,6 +443,26 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
     }
   };
 
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setPhotoFile(file);
+      setPhotoPreview(URL.createObjectURL(file));
+    }
+  };
+
+  const uploadPhoto = async (): Promise<string | undefined> => {
+    if (!photoFile) return undefined;
+    const fileName = `hotspot_${Date.now()}.${photoFile.name.split('.').pop()}`;
+    const { error } = await supabase.storage.from('hotspot-photos').upload(fileName, photoFile);
+    if (error) {
+      console.error('Upload failed:', error);
+      return undefined;
+    }
+    const { data } = supabase.storage.from('hotspot-photos').getPublicUrl(fileName);
+    return data.publicUrl;
+  };
+
   const handleSubmit = async () => {
     if (lat === null || lng === null) {
       alert('Please select a location on the map');
@@ -435,7 +470,8 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
     }
     setSubmitting(true);
     try {
-      await createHotspotReport(profileId, wardId, lat, lng, description, category, urgency);
+      const photoUrl = await uploadPhoto();
+      await createHotspotReport(profileId, wardId, lat, lng, description, category, urgency, photoUrl);
       onSubmitted();
       onClose();
     } catch (err) {
@@ -513,6 +549,27 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
             className="w-full p-3 rounded-lg border border-gray-300 focus:border-teal-500 focus:ring-2 focus:ring-teal-100 outline-none transition text-sm"
             placeholder="Describe what you see..."
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Photo (optional)</label>
+          {photoPreview ? (
+            <div className="relative">
+              <img src={photoPreview} alt="Preview" className="w-full rounded-lg max-h-48 object-cover" />
+              <button
+                onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
+                className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/50 text-white hover:bg-black/70 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <label className="flex flex-col items-center justify-center gap-2 p-6 rounded-lg border-2 border-dashed border-gray-300 cursor-pointer hover:border-teal-400 transition">
+              <Camera className="w-6 h-6 text-gray-400" />
+              <span className="text-sm text-gray-500">Tap to add a photo</span>
+              <input type="file" accept="image/*" onChange={handlePhotoSelect} className="hidden" />
+            </label>
+          )}
         </div>
 
         <button

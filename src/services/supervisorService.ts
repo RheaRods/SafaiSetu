@@ -309,5 +309,22 @@ export async function scheduleEwaste(requestId: string, date: string, workerId: 
     .select()
     .maybeSingle();
   if (error) throw error;
+
+  // Notify the assigned worker
+  const { data: worker } = await supabase
+    .from('workers')
+    .select('profile_id')
+    .eq('id', workerId)
+    .maybeSingle();
+
+  if (worker) {
+    await supabase.from('notifications').insert({
+      profile_id: worker.profile_id,
+      title: 'E-Waste Pickup Scheduled',
+      message: `E-waste pickup scheduled for ${date}.`,
+      type: 'ewaste',
+    });
+  }
+
   return data;
 }
