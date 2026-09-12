@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { Worker, Route, CollectionTask, CleanupAssignment, CollectionStatus } from '@/types';
+import type { Worker, Route, CollectionTask, CleanupAssignment, EwasteRequest, CollectionStatus } from '@/types';
 
 export async function getWorkerByProfile(profileId: string) {
   const { data, error } = await supabase
@@ -126,6 +126,45 @@ export async function completeCleanup(assignmentId: string, photoUrl?: string) {
   // Update hotspot status to resolved
   if (data) {
     await supabase.from('hotspot_reports').update({ status: 'resolved' }).eq('id', data.hotspot_report_id);
+  }
+
+  return data;
+}
+
+export async function getAssignedEwasteRequests(workerId: string) {
+  const { data, error } = await supabase
+    .from('ewaste_requests')
+    .select(`
+      *,
+      household:households(*)
+    `)
+    .eq('assigned_worker_id', workerId)
+    .neq('status', 'collected')
+    .order('preferred_date', { ascending: true });
+  if (error) throw error;
+  return data as (EwasteRequest & { household: any })[];
+}
+
+export async function completeEwaste(requestId: string) {
+  const { data, error } = await supabase
+    .from('ewaste_requests')
+    .update({ status: 'collected', completed_at: new Date().toISOString() })
+    .eq('id', requestId)
+    .select()
+    .maybeSingle();
+  if (error) throw error;
+
+  // Notify household
+  if (data) {
+    const { data: hh } = await supabase.from('households').select('profile_id').eq('id', data.household_id).maybeSingle();
+    if (hh?.profile_id) {
+      await supabase.rpc('create_notification', {
+        target_profile_id: hh.profile_id,
+        p_title: 'E-Waste Collected',
+        p_message: 'Your e-waste pickup has been completed.',
+        p_type: 'ewaste',
+      });
+    }
   }
 
   return data;

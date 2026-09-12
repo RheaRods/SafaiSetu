@@ -1,0 +1,643 @@
+diff --git a/src/App.tsx b/src/App.tsx
+index 64ec721..28613e5 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+ import { AuthProvider, useAuth } from '@/context/AuthContext';
+ import SignIn from '@/pages/auth/SignIn';
+ import SignUp from '@/pages/auth/SignUp';
++import ForgotPassword from '@/pages/auth/ForgotPassword';
++import ResetPassword from '@/pages/auth/ResetPassword';
+ import HouseholdDashboard from '@/pages/household/HouseholdDashboard';
+ import WorkerDashboard from '@/pages/worker/WorkerDashboard';
+ import SupervisorDashboard from '@/pages/supervisor/SupervisorDashboard';
+@@ -34,6 +36,8 @@ export default function App() {
+         <Routes>
+           <Route path="/signin" element={<SignIn />} />
+           <Route path="/signup" element={<SignUp />} />
++          <Route path="/forgot-password" element={<ForgotPassword />} />
++          <Route path="/reset-password" element={<ResetPassword />} />
+           <Route path="/" element={<RootRedirect />} />
+           <Route path="/household" element={<ProtectedRoute allowedRoles={['household']}><HouseholdDashboard /></ProtectedRoute>} />
+           <Route path="/worker" element={<ProtectedRoute allowedRoles={['worker']}><WorkerDashboard /></ProtectedRoute>} />
+diff --git a/src/context/AuthContext.tsx b/src/context/AuthContext.tsx
+index 9bb8756..c48b80f 100644
+--- a/src/context/AuthContext.tsx
++++ b/src/context/AuthContext.tsx
+@@ -11,6 +11,8 @@ interface AuthContextValue {
+   signUp: (email: string, password: string, fullName: string, phone: string, role: UserRole, address?: string) => Promise<{ error: string | null }>;
+   signOut: () => Promise<void>;
+   refreshProfile: () => Promise<void>;
++  resetPassword: (email: string) => Promise<{ error: string | null }>;
++  updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
+ }
+ 
+ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+@@ -136,8 +138,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
+     }
+   };
+ 
++  const resetPassword = async (email: string) => {
++    const { error } = await supabase.auth.resetPasswordForEmail(email, {
++      redirectTo: `${window.location.origin}/reset-password`,
++    });
++    return { error: error?.message ?? null };
++  };
++
++  const updatePassword = async (newPassword: string) => {
++    const { error } = await supabase.auth.updateUser({ password: newPassword });
++    return { error: error?.message ?? null };
++  };
++
+   return (
+-    <AuthContext.Provider value={{ session, profile, loading, signIn, signUp, signOut, refreshProfile }}>
++    <AuthContext.Provider value={{ session, profile, loading, signIn, signUp, signOut, refreshProfile, resetPassword, updatePassword }}>
+       {children}
+     </AuthContext.Provider>
+   );
+diff --git a/src/pages/auth/ForgotPassword.tsx b/src/pages/auth/ForgotPassword.tsx
+new file mode 100644
+index 0000000..b0ea708
+--- /dev/null
++++ b/src/pages/auth/ForgotPassword.tsx
+@@ -0,0 +1,88 @@
++import { useState } from 'react';
++import { Link } from 'react-router-dom';
++import { useAuth } from '@/context/AuthContext';
++import { Trash2, Mail, ArrowLeft } from 'lucide-react';
++
++export default function ForgotPassword() {
++  const { resetPassword } = useAuth();
++  const [email, setEmail] = useState('');
++  const [error, setError] = useState<string | null>(null);
++  const [sent, setSent] = useState(false);
++  const [loading, setLoading] = useState(false);
++
++  const handleSubmit = async (e: React.FormEvent) => {
++    e.preventDefault();
++    setError(null);
++    setLoading(true);
++    const { error } = await resetPassword(email);
++    setLoading(false);
++    if (error) {
++      setError(error);
++    } else {
++      setSent(true);
++    }
++  };
++
++  return (
++    <div className="min-h-screen bg-forest flex items-center justify-center px-4">
++      <div className="max-w-md w-full">
++        <div className="text-center mb-8">
++          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-moss text-forest-dark mb-4">
++            <Trash2 className="w-8 h-8" />
++          </div>
++          <h1 className="text-4xl font-display font-semibold text-paper">SafaiSetu</h1>
++        </div>
++
++        <div className="bg-paper rounded-lg p-8 border border-forest-dark">
++          <h2 className="text-xl font-display font-semibold text-ink mb-2">Reset your password</h2>
++          <p className="text-sm text-ink/50 mb-6">
++            Enter the email on your account and we'll send you a link to reset your password.
++          </p>
++
++          {error && (
++            <div className="mb-4 p-3 rounded-md bg-brick/10 border border-brick/20 text-brick text-sm">
++              {error}
++            </div>
++          )}
++
++          {sent ? (
++            <div className="p-3 rounded-md bg-forest/10 border border-forest/20 text-forest text-sm">
++              If an account exists for that email, a reset link is on its way. Check your inbox.
++            </div>
++          ) : (
++            <form onSubmit={handleSubmit} className="space-y-4">
++              <div>
++                <label className="block text-sm font-medium text-ink/70 mb-1.5">Email</label>
++                <div className="relative">
++                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-ink/30" />
++                  <input
++                    type="email"
++                    required
++                    value={email}
++                    onChange={(e) => setEmail(e.target.value)}
++                    className="w-full pl-10 pr-4 py-2.5 rounded-md border border-sand-dark bg-white focus:border-forest focus:ring-2 focus:ring-moss/20 outline-none transition"
++                    placeholder="you@example.com"
++                  />
++                </div>
++              </div>
++
++              <button
++                type="submit"
++                disabled={loading}
++                className="w-full flex items-center justify-center gap-2 bg-forest hover:bg-forest-dark text-paper font-medium py-2.5 rounded-md transition disabled:opacity-50"
++              >
++                {loading ? 'Sending...' : 'Send reset link'}
++              </button>
++            </form>
++          )}
++
++          <p className="text-center text-sm text-ink/50 mt-6">
++            <Link to="/signin" className="text-forest font-medium hover:underline inline-flex items-center gap-1">
++              <ArrowLeft className="w-3.5 h-3.5" /> Back to sign in
++            </Link>
++          </p>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/src/pages/auth/ResetPassword.tsx b/src/pages/auth/ResetPassword.tsx
+new file mode 100644
+index 0000000..2aedcfb
+--- /dev/null
++++ b/src/pages/auth/ResetPassword.tsx
+@@ -0,0 +1,107 @@
++import { useState } from 'react';
++import { useNavigate } from 'react-router-dom';
++import { useAuth } from '@/context/AuthContext';
++import { Trash2, Lock } from 'lucide-react';
++
++export default function ResetPassword() {
++  const { updatePassword } = useAuth();
++  const navigate = useNavigate();
++  const [password, setPassword] = useState('');
++  const [confirm, setConfirm] = useState('');
++  const [error, setError] = useState<string | null>(null);
++  const [done, setDone] = useState(false);
++  const [loading, setLoading] = useState(false);
++
++  const handleSubmit = async (e: React.FormEvent) => {
++    e.preventDefault();
++    setError(null);
++
++    if (password.length < 6) {
++      setError('Password must be at least 6 characters.');
++      return;
++    }
++    if (password !== confirm) {
++      setError('Passwords do not match.');
++      return;
++    }
++
++    setLoading(true);
++    const { error } = await updatePassword(password);
++    setLoading(false);
++    if (error) {
++      setError(error);
++    } else {
++      setDone(true);
++      setTimeout(() => navigate('/signin'), 2000);
++    }
++  };
++
++  return (
++    <div className="min-h-screen bg-forest flex items-center justify-center px-4">
++      <div className="max-w-md w-full">
++        <div className="text-center mb-8">
++          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-moss text-forest-dark mb-4">
++            <Trash2 className="w-8 h-8" />
++          </div>
++          <h1 className="text-4xl font-display font-semibold text-paper">SafaiSetu</h1>
++        </div>
++
++        <div className="bg-paper rounded-lg p-8 border border-forest-dark">
++          <h2 className="text-xl font-display font-semibold text-ink mb-6">Set a new password</h2>
++
++          {error && (
++            <div className="mb-4 p-3 rounded-md bg-brick/10 border border-brick/20 text-brick text-sm">
++              {error}
++            </div>
++          )}
++
++          {done ? (
++            <div className="p-3 rounded-md bg-forest/10 border border-forest/20 text-forest text-sm">
++              Password updated. Redirecting to sign in...
++            </div>
++          ) : (
++            <form onSubmit={handleSubmit} className="space-y-4">
++              <div>
++                <label className="block text-sm font-medium text-ink/70 mb-1.5">New password</label>
++                <div className="relative">
++                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-ink/30" />
++                  <input
++                    type="password"
++                    required
++                    value={password}
++                    onChange={(e) => setPassword(e.target.value)}
++                    className="w-full pl-10 pr-4 py-2.5 rounded-md border border-sand-dark bg-white focus:border-forest focus:ring-2 focus:ring-moss/20 outline-none transition"
++                    placeholder="••••••••"
++                  />
++                </div>
++              </div>
++
++              <div>
++                <label className="block text-sm font-medium text-ink/70 mb-1.5">Confirm password</label>
++                <div className="relative">
++                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-ink/30" />
++                  <input
++                    type="password"
++                    required
++                    value={confirm}
++                    onChange={(e) => setConfirm(e.target.value)}
++                    className="w-full pl-10 pr-4 py-2.5 rounded-md border border-sand-dark bg-white focus:border-forest focus:ring-2 focus:ring-moss/20 outline-none transition"
++                    placeholder="••••••••"
++                  />
++                </div>
++              </div>
++
++              <button
++                type="submit"
++                disabled={loading}
++                className="w-full flex items-center justify-center gap-2 bg-forest hover:bg-forest-dark text-paper font-medium py-2.5 rounded-md transition disabled:opacity-50"
++              >
++                {loading ? 'Updating...' : 'Update password'}
++              </button>
++            </form>
++          )}
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/src/pages/auth/SignIn.tsx b/src/pages/auth/SignIn.tsx
+index 20de783..e343704 100644
+--- a/src/pages/auth/SignIn.tsx
++++ b/src/pages/auth/SignIn.tsx
+@@ -61,7 +61,12 @@ export default function SignIn() {
+             </div>
+ 
+             <div>
+-              <label className="block text-sm font-medium text-ink/70 mb-1.5">Password</label>
++              <div className="flex items-center justify-between mb-1.5">
++                <label className="block text-sm font-medium text-ink/70">Password</label>
++                <Link to="/forgot-password" className="text-xs text-forest font-medium hover:underline">
++                  Forgot password?
++                </Link>
++              </div>
+               <div className="relative">
+                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-ink/30" />
+                 <input
+diff --git a/src/pages/household/HouseholdDashboard.tsx b/src/pages/household/HouseholdDashboard.tsx
+index ea29d75..42eab54 100644
+--- a/src/pages/household/HouseholdDashboard.tsx
++++ b/src/pages/household/HouseholdDashboard.tsx
+@@ -366,6 +366,7 @@ function MissedPickupModal({ householdId, taskId, onClose, onSubmitted }: { hous
+   const [reason, setReason] = useState<MissedReason>('worker_did_not_arrive');
+   const [description, setDescription] = useState('');
+   const [submitting, setSubmitting] = useState(false);
++  const [error, setError] = useState<string | null>(null);
+ 
+   const reasons: { value: MissedReason; label: string }[] = [
+   { value: 'worker_did_not_arrive', label: 'Worker did not arrive' },
+@@ -377,12 +378,14 @@ function MissedPickupModal({ householdId, taskId, onClose, onSubmitted }: { hous
+ 
+   const handleSubmit = async () => {
+   setSubmitting(true);
++  setError(null);
+   try {
+   await reportMissedPickup(householdId, taskId, reason, description);
+   onSubmitted();
+   onClose();
+   } catch (err) {
+   console.error(err);
++  setError('Could not submit your report. Check your connection and try again.');
+   } finally {
+   setSubmitting(false);
+   }
+@@ -417,6 +420,9 @@ function MissedPickupModal({ householdId, taskId, onClose, onSubmitted }: { hous
+   placeholder="Add any details that might help..."
+   />
+   </div>
++  {error && (
++  <p className="text-sm text-brick bg-brick/10 rounded-lg px-3 py-2">{error}</p>
++  )}
+   <button
+   onClick={handleSubmit}
+   disabled={submitting}
+@@ -439,6 +445,7 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
+   const [useMyLocation, setUseMyLocation] = useState(false);
+   const [photoFile, setPhotoFile] = useState<File | null>(null);
+   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
++  const [error, setError] = useState<string | null>(null);
+ 
+   const categories: { value: WasteCategory; label: string }[] = [
+   { value: 'mixed', label: 'Mixed' },
+@@ -462,7 +469,7 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
+   setLng(pos.coords.longitude);
+   setUseMyLocation(true);
+   },
+-  () => alert('Could not get your location. Please tap the map instead.')
++  () => setError('Could not get your location. Please tap the map instead.')
+   );
+   }
+   };
+@@ -489,11 +496,12 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
+ 
+   const handleSubmit = async () => {
+     if (lat === null || lng === null) {
+-      alert('Please select a location on the map');
++      setError('Please select a location on the map.');
+       return;
+     }
+ 
+     setSubmitting(true);
++    setError(null);
+     try {
+       const photoUrl = await uploadPhoto();
+       await createHotspotReport(
+@@ -510,7 +518,7 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
+       onClose();
+     } catch (err) {
+       console.error(err);
+-      alert('Failed to submit report. Please try again.');
++      setError('Could not submit your report. Check your connection and try again.');
+     } finally {
+       setSubmitting(false);
+     }
+@@ -618,6 +626,9 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
+           )}
+         </div>
+ 
++        {error && (
++          <p className="text-sm text-brick bg-brick/10 rounded-lg px-3 py-2">{error}</p>
++        )}
+         <button
+           onClick={handleSubmit}
+           disabled={submitting || lat === null}
+@@ -634,19 +645,22 @@ function EwasteModal({ householdId, onClose, onSubmitted }: { householdId: strin
+   const [date, setDate] = useState('');
+   const [items, setItems] = useState('');
+   const [submitting, setSubmitting] = useState(false);
++  const [error, setError] = useState<string | null>(null);
+ 
+   const handleSubmit = async () => {
+   if (!items.trim()) {
+-  alert('Please describe the items you want collected');
++  setError('Please describe the items you want collected.');
+   return;
+   }
+   setSubmitting(true);
++  setError(null);
+   try {
+   await requestEwastePickup(householdId, date || new Date().toISOString().split('T')[0], items);
+   onSubmitted();
+   onClose();
+   } catch (err) {
+   console.error(err);
++  setError('Could not submit your request. Check your connection and try again.');
+   } finally {
+   setSubmitting(false);
+   }
+@@ -675,6 +689,9 @@ function EwasteModal({ householdId, onClose, onSubmitted }: { householdId: strin
+   placeholder="e.g., 2 old laptops, 1 CRT monitor, 3 mobile phones..."
+   />
+   </div>
++  {error && (
++  <p className="text-sm text-brick bg-brick/10 rounded-lg px-3 py-2">{error}</p>
++  )}
+   <button
+   onClick={handleSubmit}
+   disabled={submitting}
+diff --git a/src/pages/worker/WorkerDashboard.tsx b/src/pages/worker/WorkerDashboard.tsx
+index c8630d9..4c0cb6d 100644
+--- a/src/pages/worker/WorkerDashboard.tsx
++++ b/src/pages/worker/WorkerDashboard.tsx
+@@ -5,13 +5,13 @@ import { Card, PageHeader, LoadingSpinner, EmptyState, StatusBadge } from '@/com
+ import MapView from '@/components/MapView';
+ import {
+   Route as RouteIcon, CheckCircle2, XCircle, MapPin, Clock, Users,
+-  AlertTriangle, RefreshCw, Trash2, Camera, X
++  AlertTriangle, RefreshCw, Trash2, Camera, X, Recycle
+ } from 'lucide-react';
+-import { getWorkerByProfile, getTodayTasks, updateTaskStatus, getRecoveryAssignments, completeRecovery, getCleanupAssignments, completeCleanup } from '@/services/workerService';
++import { getWorkerByProfile, getTodayTasks, updateTaskStatus, getRecoveryAssignments, completeRecovery, getCleanupAssignments, completeCleanup, getAssignedEwasteRequests, completeEwaste } from '@/services/workerService';
+ import { supabase } from '@/lib/supabase';
+ import type { Worker, CollectionStatus } from '@/types';
+ 
+-type Tab = 'tasks' | 'recovery' | 'cleanup' | 'map';
++type Tab = 'tasks' | 'recovery' | 'cleanup' | 'ewaste' | 'map';
+ 
+ export default function WorkerDashboard() {
+   const { profile } = useAuth();
+@@ -20,6 +20,7 @@ export default function WorkerDashboard() {
+   const [tasks, setTasks] = useState<any[]>([]);
+   const [recoveries, setRecoveries] = useState<any[]>([]);
+   const [cleanups, setCleanups] = useState<any[]>([]);
++  const [ewasteRequests, setEwasteRequests] = useState<any[]>([]);
+   const [loading, setLoading] = useState(true);
+   const [obstacleModal, setObstacleModal] = useState<string | null>(null);
+   const [cleanupModal, setCleanupModal] = useState<string | null>(null);
+@@ -32,14 +33,16 @@ export default function WorkerDashboard() {
+   const w = await getWorkerByProfile(profile.id);
+   setWorker(w);
+   if (w) {
+-  const [t, r, c] = await Promise.all([
++  const [t, r, c, e] = await Promise.all([
+   getTodayTasks(w.id),
+   getRecoveryAssignments(w.id),
+   getCleanupAssignments(w.id),
++  getAssignedEwasteRequests(w.id),
+   ]);
+   setTasks(t || []);
+   setRecoveries(r || []);
+   setCleanups(c || []);
++  setEwasteRequests(e || []);
+   }
+   } catch (err) {
+   console.error(err);
+@@ -57,6 +60,7 @@ export default function WorkerDashboard() {
+       .on('postgres_changes', { event: '*', schema: 'public', table: 'collection_tasks' }, () => fetchAll())
+       .on('postgres_changes', { event: '*', schema: 'public', table: 'missed_pickups' }, () => fetchAll())
+       .on('postgres_changes', { event: '*', schema: 'public', table: 'cleanup_assignments' }, () => fetchAll())
++      .on('postgres_changes', { event: '*', schema: 'public', table: 'ewaste_requests' }, () => fetchAll())
+       .subscribe();
+     return () => { channel.unsubscribe(); };
+   }, [profile, fetchAll]);
+@@ -120,6 +124,16 @@ export default function WorkerDashboard() {
+     }
+   };
+ 
++  const handleCompleteEwaste = async (id: string) => {
++    try {
++      await completeEwaste(id);
++      showToast('E-waste pickup marked collected');
++      fetchAll();
++    } catch (err) {
++      showToast('Failed to update e-waste pickup');
++    }
++  };
++
+   if (loading) return <AppShell><LoadingSpinner /></AppShell>;
+   if (!worker) return (
+   <AppShell>
+@@ -148,6 +162,7 @@ export default function WorkerDashboard() {
+   ['tasks', 'Tasks', RouteIcon],
+   ['recovery', 'Recovery', RefreshCw],
+   ['cleanup', 'Cleanup', Trash2],
++  ['ewaste', 'E-Waste', Recycle],
+   ['map', 'Map', MapPin],
+   ];
+ 
+@@ -240,6 +255,9 @@ export default function WorkerDashboard() {
+   {key === 'cleanup' && cleanups.length > 0 && (
+   <span className="ml-1 px-1.5 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold">{cleanups.length}</span>
+   )}
++  {key === 'ewaste' && ewasteRequests.length > 0 && (
++  <span className="ml-1 px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold">{ewasteRequests.length}</span>
++  )}
+   </button>
+   ))}
+   </div>
+@@ -323,6 +341,37 @@ export default function WorkerDashboard() {
+         </div>
+       )}
+ 
++      {tab === 'ewaste' && (
++        <div className="space-y-3">
++          {ewasteRequests.length === 0 ? (
++            <EmptyState icon={Recycle} title="No e-waste pickups" message="No e-waste pickups assigned to you right now." />
++          ) : (
++            ewasteRequests.map((e) => (
++              <Card key={e.id} className="p-4">
++                <div className="flex items-start justify-between mb-2">
++                  <div>
++                    <p className="font-semibold text-ink">{e.household?.address_line}</p>
++                    {e.household?.landmark && <p className="text-sm text-ink/40">{e.household.landmark}</p>}
++                    <p className="text-xs text-ink/50 mt-1">{e.item_description}</p>
++                    {e.preferred_date && (
++                      <p className="text-xs text-ink/40 mt-1">Preferred date: {e.preferred_date}</p>
++                    )}
++                  </div>
++                  <StatusBadge status={e.status} />
++                </div>
++                <button
++                  onClick={() => handleCompleteEwaste(e.id)}
++                  className="mt-2 w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 rounded-lg transition"
++                >
++                  <CheckCircle2 className="w-4 h-4" />
++                  Mark Collected
++                </button>
++              </Card>
++            ))
++          )}
++        </div>
++      )}
++
+   {tab === 'map' && (
+   <Card className="p-4">
+   <h3 className="font-semibold text-ink mb-3">Route Map</h3>
+diff --git a/src/services/supervisorService.ts b/src/services/supervisorService.ts
+index a615cf1..94c0a33 100644
+--- a/src/services/supervisorService.ts
++++ b/src/services/supervisorService.ts
+@@ -441,7 +441,7 @@ export async function rescheduleTask(taskId: string, newDate: string, newWorkerI
+ export async function scheduleEwaste(requestId: string, date: string, workerId: string) {
+   const { data, error } = await supabase
+     .from('ewaste_requests')
+-    .update({ status: 'scheduled', preferred_date: date })
++    .update({ status: 'scheduled', preferred_date: date, assigned_worker_id: workerId })
+     .eq('id', requestId)
+     .select()
+     .maybeSingle();
+diff --git a/src/services/workerService.ts b/src/services/workerService.ts
+index 5c60529..fed12a7 100644
+--- a/src/services/workerService.ts
++++ b/src/services/workerService.ts
+@@ -1,5 +1,5 @@
+ import { supabase } from '@/lib/supabase';
+-import type { Worker, Route, CollectionTask, CleanupAssignment, CollectionStatus } from '@/types';
++import type { Worker, Route, CollectionTask, CleanupAssignment, EwasteRequest, CollectionStatus } from '@/types';
+ 
+ export async function getWorkerByProfile(profileId: string) {
+   const { data, error } = await supabase
+@@ -131,6 +131,45 @@ export async function completeCleanup(assignmentId: string, photoUrl?: string) {
+   return data;
+ }
+ 
++export async function getAssignedEwasteRequests(workerId: string) {
++  const { data, error } = await supabase
++    .from('ewaste_requests')
++    .select(`
++      *,
++      household:households(*)
++    `)
++    .eq('assigned_worker_id', workerId)
++    .neq('status', 'collected')
++    .order('preferred_date', { ascending: true });
++  if (error) throw error;
++  return data as (EwasteRequest & { household: any })[];
++}
++
++export async function completeEwaste(requestId: string) {
++  const { data, error } = await supabase
++    .from('ewaste_requests')
++    .update({ status: 'collected', completed_at: new Date().toISOString() })
++    .eq('id', requestId)
++    .select()
++    .maybeSingle();
++  if (error) throw error;
++
++  // Notify household
++  if (data) {
++    const { data: hh } = await supabase.from('households').select('profile_id').eq('id', data.household_id).maybeSingle();
++    if (hh?.profile_id) {
++      await supabase.rpc('create_notification', {
++        target_profile_id: hh.profile_id,
++        p_title: 'E-Waste Collected',
++        p_message: 'Your e-waste pickup has been completed.',
++        p_type: 'ewaste',
++      });
++    }
++  }
++
++  return data;
++}
++
+ export async function getRecoveryAssignments(workerId: string) {
+   const { data, error } = await supabase
+     .from('missed_pickups')
+diff --git a/src/types/index.ts b/src/types/index.ts
+index ad2c5e7..d712074 100644
+--- a/src/types/index.ts
++++ b/src/types/index.ts
+@@ -133,6 +133,8 @@ export interface EwasteRequest {
+   preferred_date: string | null;
+   item_description: string;
+   status: EwasteStatus;
++  assigned_worker_id: string | null;
++  completed_at: string | null;
+   created_at: string;
+ }
+ 
+diff --git a/supabase/migrations/20260912090000_003_ewaste_worker_assignment.sql b/supabase/migrations/20260912090000_003_ewaste_worker_assignment.sql
+new file mode 100644
+index 0000000..ffe7f65
+--- /dev/null
++++ b/supabase/migrations/20260912090000_003_ewaste_worker_assignment.sql
+@@ -0,0 +1,23 @@
++-- Adds worker assignment tracking to ewaste_requests so workers can see and
++-- complete the e-waste pickups a supervisor schedules them for.
++-- Previously scheduleEwaste() notified a worker but never persisted which
++-- worker was assigned, so there was no way to query "my e-waste pickups".
++
++ALTER TABLE ewaste_requests
++  ADD COLUMN IF NOT EXISTS assigned_worker_id uuid REFERENCES workers(id),
++  ADD COLUMN IF NOT EXISTS completed_at timestamptz;
++
++CREATE INDEX IF NOT EXISTS idx_ewaste_requests_assigned_worker ON ewaste_requests(assigned_worker_id);
++
++-- select_ewaste_requests: household owner, supervisor, OR the assigned worker
++DROP POLICY IF EXISTS "select_ewaste_requests" ON ewaste_requests;
++CREATE POLICY "select_ewaste_requests" ON ewaste_requests FOR SELECT TO authenticated
++  USING (EXISTS (SELECT 1 FROM households h WHERE h.id = ewaste_requests.household_id AND h.profile_id = auth.uid())
++    OR EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'supervisor')
++    OR EXISTS (SELECT 1 FROM workers w WHERE w.id = ewaste_requests.assigned_worker_id AND w.profile_id = auth.uid()));
++
++-- update_ewaste_requests: supervisor (schedule/assign), OR the assigned worker (mark collected)
++DROP POLICY IF EXISTS "update_ewaste_requests" ON ewaste_requests;
++CREATE POLICY "update_ewaste_requests" ON ewaste_requests FOR UPDATE TO authenticated
++  USING (EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'supervisor')
++    OR EXISTS (SELECT 1 FROM workers w WHERE w.id = ewaste_requests.assigned_worker_id AND w.profile_id = auth.uid()));

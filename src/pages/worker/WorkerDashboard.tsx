@@ -5,13 +5,13 @@ import { Card, PageHeader, LoadingSpinner, EmptyState, StatusBadge } from '@/com
 import MapView from '@/components/MapView';
 import {
   Route as RouteIcon, CheckCircle2, XCircle, MapPin, Clock, Users,
-  AlertTriangle, RefreshCw, Trash2, Camera, X
+  AlertTriangle, RefreshCw, Trash2, Camera, X, Recycle
 } from 'lucide-react';
-import { getWorkerByProfile, getTodayTasks, updateTaskStatus, getRecoveryAssignments, completeRecovery, getCleanupAssignments, completeCleanup } from '@/services/workerService';
+import { getWorkerByProfile, getTodayTasks, updateTaskStatus, getRecoveryAssignments, completeRecovery, getCleanupAssignments, completeCleanup, getAssignedEwasteRequests, completeEwaste } from '@/services/workerService';
 import { supabase } from '@/lib/supabase';
 import type { Worker, CollectionStatus } from '@/types';
 
-type Tab = 'tasks' | 'recovery' | 'cleanup' | 'map';
+type Tab = 'tasks' | 'recovery' | 'cleanup' | 'ewaste' | 'map';
 
 export default function WorkerDashboard() {
   const { profile } = useAuth();
@@ -20,6 +20,7 @@ export default function WorkerDashboard() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [recoveries, setRecoveries] = useState<any[]>([]);
   const [cleanups, setCleanups] = useState<any[]>([]);
+  const [ewasteRequests, setEwasteRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [obstacleModal, setObstacleModal] = useState<string | null>(null);
   const [cleanupModal, setCleanupModal] = useState<string | null>(null);
@@ -32,14 +33,16 @@ export default function WorkerDashboard() {
   const w = await getWorkerByProfile(profile.id);
   setWorker(w);
   if (w) {
-  const [t, r, c] = await Promise.all([
+  const [t, r, c, e] = await Promise.all([
   getTodayTasks(w.id),
   getRecoveryAssignments(w.id),
   getCleanupAssignments(w.id),
+  getAssignedEwasteRequests(w.id),
   ]);
   setTasks(t || []);
   setRecoveries(r || []);
   setCleanups(c || []);
+  setEwasteRequests(e || []);
   }
   } catch (err) {
   console.error(err);
@@ -57,6 +60,7 @@ export default function WorkerDashboard() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'collection_tasks' }, () => fetchAll())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'missed_pickups' }, () => fetchAll())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cleanup_assignments' }, () => fetchAll())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ewaste_requests' }, () => fetchAll())
       .subscribe();
     return () => { channel.unsubscribe(); };
   }, [profile, fetchAll]);
@@ -120,6 +124,16 @@ export default function WorkerDashboard() {
     }
   };
 
+  const handleCompleteEwaste = async (id: string) => {
+    try {
+      await completeEwaste(id);
+      showToast('E-waste pickup marked collected');
+      fetchAll();
+    } catch (err) {
+      showToast('Failed to update e-waste pickup');
+    }
+  };
+
   if (loading) return <AppShell><LoadingSpinner /></AppShell>;
   if (!worker) return (
   <AppShell>
@@ -148,6 +162,7 @@ export default function WorkerDashboard() {
   ['tasks', 'Tasks', RouteIcon],
   ['recovery', 'Recovery', RefreshCw],
   ['cleanup', 'Cleanup', Trash2],
+  ['ewaste', 'E-Waste', Recycle],
   ['map', 'Map', MapPin],
   ];
 
@@ -240,6 +255,9 @@ export default function WorkerDashboard() {
   {key === 'cleanup' && cleanups.length > 0 && (
   <span className="ml-1 px-1.5 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold">{cleanups.length}</span>
   )}
+  {key === 'ewaste' && ewasteRequests.length > 0 && (
+  <span className="ml-1 px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold">{ewasteRequests.length}</span>
+  )}
   </button>
   ))}
   </div>
@@ -316,6 +334,37 @@ export default function WorkerDashboard() {
                 >
                   <Camera className="w-4 h-4" />
                   Complete Cleanup
+                </button>
+              </Card>
+            ))
+          )}
+        </div>
+      )}
+
+      {tab === 'ewaste' && (
+        <div className="space-y-3">
+          {ewasteRequests.length === 0 ? (
+            <EmptyState icon={Recycle} title="No e-waste pickups" message="No e-waste pickups assigned to you right now." />
+          ) : (
+            ewasteRequests.map((e) => (
+              <Card key={e.id} className="p-4">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <p className="font-semibold text-ink">{e.household?.address_line}</p>
+                    {e.household?.landmark && <p className="text-sm text-ink/40">{e.household.landmark}</p>}
+                    <p className="text-xs text-ink/50 mt-1">{e.item_description}</p>
+                    {e.preferred_date && (
+                      <p className="text-xs text-ink/40 mt-1">Preferred date: {e.preferred_date}</p>
+                    )}
+                  </div>
+                  <StatusBadge status={e.status} />
+                </div>
+                <button
+                  onClick={() => handleCompleteEwaste(e.id)}
+                  className="mt-2 w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 rounded-lg transition"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  Mark Collected
                 </button>
               </Card>
             ))

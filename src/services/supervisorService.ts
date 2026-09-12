@@ -441,7 +441,7 @@ export async function rescheduleTask(taskId: string, newDate: string, newWorkerI
 export async function scheduleEwaste(requestId: string, date: string, workerId: string) {
   const { data, error } = await supabase
     .from('ewaste_requests')
-    .update({ status: 'scheduled', preferred_date: date })
+    .update({ status: 'scheduled', preferred_date: date, assigned_worker_id: workerId })
     .eq('id', requestId)
     .select()
     .maybeSingle();

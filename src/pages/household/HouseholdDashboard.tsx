@@ -366,6 +366,7 @@ function MissedPickupModal({ householdId, taskId, onClose, onSubmitted }: { hous
   const [reason, setReason] = useState<MissedReason>('worker_did_not_arrive');
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const reasons: { value: MissedReason; label: string }[] = [
   { value: 'worker_did_not_arrive', label: 'Worker did not arrive' },
@@ -377,12 +378,14 @@ function MissedPickupModal({ householdId, taskId, onClose, onSubmitted }: { hous
 
   const handleSubmit = async () => {
   setSubmitting(true);
+  setError(null);
   try {
   await reportMissedPickup(householdId, taskId, reason, description);
   onSubmitted();
   onClose();
   } catch (err) {
   console.error(err);
+  setError('Could not submit your report. Check your connection and try again.');
   } finally {
   setSubmitting(false);
   }
@@ -417,6 +420,9 @@ function MissedPickupModal({ householdId, taskId, onClose, onSubmitted }: { hous
   placeholder="Add any details that might help..."
   />
   </div>
+  {error && (
+  <p className="text-sm text-brick bg-brick/10 rounded-lg px-3 py-2">{error}</p>
+  )}
   <button
   onClick={handleSubmit}
   disabled={submitting}
@@ -439,6 +445,7 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
   const [useMyLocation, setUseMyLocation] = useState(false);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const categories: { value: WasteCategory; label: string }[] = [
   { value: 'mixed', label: 'Mixed' },
@@ -462,7 +469,7 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
   setLng(pos.coords.longitude);
   setUseMyLocation(true);
   },
-  () => alert('Could not get your location. Please tap the map instead.')
+  () => setError('Could not get your location. Please tap the map instead.')
   );
   }
   };
@@ -489,11 +496,12 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
 
   const handleSubmit = async () => {
     if (lat === null || lng === null) {
-      alert('Please select a location on the map');
+      setError('Please select a location on the map.');
       return;
     }
 
     setSubmitting(true);
+    setError(null);
     try {
       const photoUrl = await uploadPhoto();
       await createHotspotReport(
@@ -510,7 +518,7 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
       onClose();
     } catch (err) {
       console.error(err);
-      alert('Failed to submit report. Please try again.');
+      setError('Could not submit your report. Check your connection and try again.');
     } finally {
       setSubmitting(false);
     }
@@ -618,6 +626,9 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
           )}
         </div>
 
+        {error && (
+          <p className="text-sm text-brick bg-brick/10 rounded-lg px-3 py-2">{error}</p>
+        )}
         <button
           onClick={handleSubmit}
           disabled={submitting || lat === null}
@@ -634,19 +645,22 @@ function EwasteModal({ householdId, onClose, onSubmitted }: { householdId: strin
   const [date, setDate] = useState('');
   const [items, setItems] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async () => {
   if (!items.trim()) {
-  alert('Please describe the items you want collected');
+  setError('Please describe the items you want collected.');
   return;
   }
   setSubmitting(true);
+  setError(null);
   try {
   await requestEwastePickup(householdId, date || new Date().toISOString().split('T')[0], items);
   onSubmitted();
   onClose();
   } catch (err) {
   console.error(err);
+  setError('Could not submit your request. Check your connection and try again.');
   } finally {
   setSubmitting(false);
   }
@@ -675,6 +689,9 @@ function EwasteModal({ householdId, onClose, onSubmitted }: { householdId: strin
   placeholder="e.g., 2 old laptops, 1 CRT monitor, 3 mobile phones..."
   />
   </div>
+  {error && (
+  <p className="text-sm text-brick bg-brick/10 rounded-lg px-3 py-2">{error}</p>
+  )}
   <button
   onClick={handleSubmit}
   disabled={submitting}

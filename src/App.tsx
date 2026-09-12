@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import SignIn from '@/pages/auth/SignIn';
 import SignUp from '@/pages/auth/SignUp';
+import ForgotPassword from '@/pages/auth/ForgotPassword';
+import ResetPassword from '@/pages/auth/ResetPassword';
 import HouseholdDashboard from '@/pages/household/HouseholdDashboard';
 import WorkerDashboard from '@/pages/worker/WorkerDashboard';
 import SupervisorDashboard from '@/pages/supervisor/SupervisorDashboard';
@@ -34,6 +36,8 @@ export default function App() {
         <Routes>
           <Route path="/signin" element={<SignIn />} />
           <Route path="/signup" element={<SignUp />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/" element={<RootRedirect />} />
           <Route path="/household" element={<ProtectedRoute allowedRoles={['household']}><HouseholdDashboard /></ProtectedRoute>} />
           <Route path="/worker" element={<ProtectedRoute allowedRoles={['worker']}><WorkerDashboard /></ProtectedRoute>} />

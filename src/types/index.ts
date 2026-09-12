@@ -133,6 +133,8 @@ export interface EwasteRequest {
   preferred_date: string | null;
   item_description: string;
   status: EwasteStatus;
+  assigned_worker_id: string | null;
+  completed_at: string | null;
   created_at: string;
 }
 
