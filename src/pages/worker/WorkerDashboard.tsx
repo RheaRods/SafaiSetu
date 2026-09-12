@@ -147,16 +147,40 @@ export default function WorkerDashboard() {
   const total = tasks.length;
   const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-  const mapMarkers = tasks
+  const taskMarkers = tasks
   .filter((t) => t.household?.latitude && t.household?.longitude)
   .map((t) => ({
-  id: t.id,
+  id: `task-${t.id}`,
   latitude: t.household.latitude,
   longitude: t.household.longitude,
   title: t.household.address_line,
   color: t.status === 'collected' ? '#10b981' : t.status === 'scheduled' ? '#f59e0b' : '#ef4444',
   popup: `<strong>${t.household.address_line}</strong><br/>${t.status.replace(/_/g, ' ')}`,
   }));
+
+  const cleanupMarkers = cleanups
+  .filter((c) => c.hotspot?.latitude && c.hotspot?.longitude)
+  .map((c) => ({
+  id: `cleanup-${c.id}`,
+  latitude: c.hotspot.latitude,
+  longitude: c.hotspot.longitude,
+  title: 'Hotspot Cleanup',
+  color: '#8b5cf6',
+  popup: `<strong>Hotspot Cleanup</strong><br/>${c.hotspot.description || 'No description'}<br/>Urgency: ${c.hotspot.urgency}`,
+  }));
+
+  const ewasteMarkers = ewasteRequests
+  .filter((e) => e.household?.latitude && e.household?.longitude)
+  .map((e) => ({
+  id: `ewaste-${e.id}`,
+  latitude: e.household.latitude,
+  longitude: e.household.longitude,
+  title: 'E-Waste Pickup',
+  color: '#0ea5e9',
+  popup: `<strong>E-Waste Pickup</strong><br/>${e.household.address_line}<br/>${e.item_description}`,
+  }));
+
+  const mapMarkers = [...taskMarkers, ...cleanupMarkers, ...ewasteMarkers];
 
   const tabs: [Tab, string, typeof RouteIcon][] = [
   ['tasks', 'Tasks', RouteIcon],
@@ -376,13 +400,15 @@ export default function WorkerDashboard() {
   <Card className="p-4">
   <h3 className="font-semibold text-ink mb-3">Route Map</h3>
   {mapMarkers.length === 0 ? (
-  <EmptyState icon={MapPin} title="No locations" message="No household locations available to display." />
+  <EmptyState icon={MapPin} title="No locations" message="No locations available to display right now." />
   ) : (
   <>
-  <div className="flex gap-3 mb-3 text-xs">
+  <div className="flex gap-3 mb-3 text-xs flex-wrap">
   <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-forest"></span>Collected</span>
   <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-clay/50"></span>Pending</span>
   <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-brick"></span>Missed</span>
+  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full" style={{ backgroundColor: '#8b5cf6' }}></span>Hotspot Cleanup</span>
+  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full" style={{ backgroundColor: '#0ea5e9' }}></span>E-Waste</span>
   </div>
   <MapView center={[15.5912, 73.7947]} markers={mapMarkers} height={400} zoom={15} />
   </>
