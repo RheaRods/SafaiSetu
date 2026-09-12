@@ -66,15 +66,19 @@ export default function WorkerDashboard() {
   setTimeout(() => setToast(null), 3000);
   };
 
-  const handleCollect = async (taskId: string) => {
-  let lat: number | undefined, lng: number | undefined;
-  if (navigator.geolocation) {
+  const getPosition = (): Promise<{ lat?: number; lng?: number }> => {
+  return new Promise((resolve) => {
+  if (!navigator.geolocation) { resolve({}); return; }
   navigator.geolocation.getCurrentPosition(
-  (pos) => { lat = pos.coords.latitude; lng = pos.coords.longitude; },
-  () => {},
+  (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+  () => resolve({}),
   { timeout: 3000 }
   );
-  }
+  });
+  };
+
+  const handleCollect = async (taskId: string) => {
+  const { lat, lng } = await getPosition();
   try {
   await updateTaskStatus(taskId, 'collected', undefined, lat, lng);
   showToast('Collection recorded successfully');
@@ -151,7 +155,7 @@ export default function WorkerDashboard() {
   <AppShell>
   <PageHeader
   title={`Hello, ${profile?.full_name?.split(' ')[0]}`}
-  subtitle={worker.assigned_ward_id ? 'Ward 7 • Mapusa' : 'Worker Dashboard'}
+  subtitle={worker.assigned_ward ? `${worker.assigned_ward.name} • ${worker.municipality?.name || ''}` : 'Worker Dashboard'}
   />
 
   {/* Stats cards */}
@@ -344,57 +348,19 @@ export default function WorkerDashboard() {
   />
   )}
 
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-sand">
-          <h2 className="font-semibold text-ink">Report Issue</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-sand-light transition">
-            <X className="w-5 h-5 text-ink/50" />
-          </button>
+      {cleanupModal && (
+        <CleanupModal
+          onClose={() => setCleanupModal(null)}
+          onComplete={(photoUrl) => handleCompleteCleanup(cleanupModal, photoUrl)}
+        />
+      )}
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-xl bg-ink text-white text-sm font-medium ">
+          {toast}
         </div>
-        <div className="p-5 space-y-3">
-          <p className="text-sm font-medium text-ink/70">Collection Issue</p>
-          {options.map((o) => (
-            <button
-              key={o.value}
-              onClick={() => setStatus(o.value)}
-              className={`w-full text-left p-3 rounded-lg border-2 transition ${
-                status === o.value ? 'border-orange-500 bg-orange-50' : 'border-sand hover:border-sand-dark'
-              }`}
-            >
-              <p className="text-sm font-medium text-ink/70">{o.label}</p>
-              <p className="text-xs text-ink/40 mt-0.5">{o.desc}</p>
-            </button>
-          ))}
-          <p className="text-sm font-medium text-ink/70 pt-2">Obstacle Type (optional)</p>
-          {obstacles.map((o) => (
-            <button
-              key={o.value}
-              onClick={() => setNote(o.value)}
-              className={`w-full text-left p-3 rounded-lg border-2 transition ${
-                note === o.value ? 'border-blue-500 bg-blue-50' : 'border-sand hover:border-sand-dark'
-              }`}
-            >
-              <p className="text-sm font-medium text-ink/70">{o.label}</p>
-              <p className="text-xs text-ink/40 mt-0.5">{o.desc}</p>
-            </button>
-          ))}
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            rows={2}
-            placeholder="Add a note (optional)..."
-            className="w-full p-3 rounded-lg border border-sand-dark focus:border-orange-500 focus:ring-2 focus:ring-orange-100 outline-none transition text-sm"
-          />
-          <button
-            onClick={() => onSubmit(status, note)}
-            className="w-full bg-orange-500 hover:bg-orange-600 text-white font-medium py-2.5 rounded-lg transition"
-          >
-            Submit Report
-          </button>
-        </div>
-      </div>
-    </div>
+      )}
+    </AppShell>
   );
 }
 
@@ -470,19 +436,57 @@ function ObstacleModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (
   ];
 
   return (
-      {cleanupModal && (
-        <CleanupModal
-          onClose={() => setCleanupModal(null)}
-          onComplete={(photoUrl) => handleCompleteCleanup(cleanupModal, photoUrl)}
-        />
-      )}
-
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-xl bg-ink text-white text-sm font-medium ">
-          {toast}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-sand">
+          <h2 className="font-semibold text-ink">Report Issue</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-sand-light transition">
+            <X className="w-5 h-5 text-ink/50" />
+          </button>
         </div>
-      )}
-    </AppShell>
+        <div className="p-5 space-y-3">
+          <p className="text-sm font-medium text-ink/70">Collection Issue</p>
+          {options.map((o) => (
+            <button
+              key={o.value}
+              onClick={() => setStatus(o.value)}
+              className={`w-full text-left p-3 rounded-lg border-2 transition ${
+                status === o.value ? 'border-orange-500 bg-orange-50' : 'border-sand hover:border-sand-dark'
+              }`}
+            >
+              <p className="text-sm font-medium text-ink/70">{o.label}</p>
+              <p className="text-xs text-ink/40 mt-0.5">{o.desc}</p>
+            </button>
+          ))}
+          <p className="text-sm font-medium text-ink/70 pt-2">Obstacle Type (optional)</p>
+          {obstacles.map((o) => (
+            <button
+              key={o.value}
+              onClick={() => setNote(o.value)}
+              className={`w-full text-left p-3 rounded-lg border-2 transition ${
+                note === o.value ? 'border-blue-500 bg-blue-50' : 'border-sand hover:border-sand-dark'
+              }`}
+            >
+              <p className="text-sm font-medium text-ink/70">{o.label}</p>
+              <p className="text-xs text-ink/40 mt-0.5">{o.desc}</p>
+            </button>
+          ))}
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={2}
+            placeholder="Add a note (optional)..."
+            className="w-full p-3 rounded-lg border border-sand-dark focus:border-orange-500 focus:ring-2 focus:ring-orange-100 outline-none transition text-sm"
+          />
+          <button
+            onClick={() => onSubmit(status, note)}
+            className="w-full bg-orange-500 hover:bg-orange-600 text-white font-medium py-2.5 rounded-lg transition"
+          >
+            Submit Report
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

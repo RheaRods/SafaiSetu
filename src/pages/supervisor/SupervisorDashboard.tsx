@@ -30,6 +30,7 @@ export default function SupervisorDashboard() {
   const [ewasteReqs, setEwasteReqs] = useState<any[]>([]);
   const [workers, setWorkers] = useState<any[]>([]);
   const [stats, setStats] = useState<{ daily: any[]; statusBreakdown: any[] }>({ daily: [], statusBreakdown: [] });
+  const [municipalityName, setMunicipalityName] = useState('');
   const [loading, setLoading] = useState(true);
   const [assignModal, setAssignModal] = useState<{ type: 'recovery' | 'cleanup' | 'ewaste' | 'route'; id: string } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -38,13 +39,14 @@ export default function SupervisorDashboard() {
   if (!profile?.municipality_id) return;
   setLoading(true);
   try {
-  const [prog, missed, hotspots, ewaste, wks, st] = await Promise.all([
+  const [prog, missed, hotspots, ewaste, wks, st, muni] = await Promise.all([
   getTodayProgress(profile.municipality_id),
   getMissedPickupQueue(profile.municipality_id),
   getHotspotQueue(profile.municipality_id),
   getEwasteRequests(profile.municipality_id),
   getWorkers(profile.municipality_id),
   getWeeklyStats(profile.municipality_id),
+  supabase.from('municipalities').select('name').eq('id', profile.municipality_id).maybeSingle(),
   ]);
   setProgress(prog || []);
   setMissedQueue(missed || []);
@@ -52,6 +54,7 @@ export default function SupervisorDashboard() {
   setEwasteReqs(ewaste || []);
   setWorkers(wks || []);
   setStats(st);
+  setMunicipalityName(muni.data?.name || '');
   } catch (err) {
   console.error(err);
   } finally {
@@ -168,7 +171,7 @@ export default function SupervisorDashboard() {
   <AppShell>
   <PageHeader
   title="Supervisor Dashboard"
-  subtitle="Mapusa Municipal Council • Ward 7"
+  subtitle={municipalityName || 'Supervisor Dashboard'}
   />
 
   {/* Stats overview cards */}

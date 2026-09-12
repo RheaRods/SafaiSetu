@@ -152,11 +152,11 @@ export async function assignRecoveryWorker(missedPickupId: string, workerId: str
       .maybeSingle();
 
     if (worker) {
-      await supabase.from('notifications').insert({
-        profile_id: worker.profile_id,
-        title: 'Recovery Assignment',
-        message: 'You have been assigned a missed pickup recovery task.',
-        type: 'recovery',
+      await supabase.rpc('create_notification', {
+        target_profile_id: worker.profile_id,
+        p_title: 'Recovery Assignment',
+        p_message: 'You have been assigned a missed pickup recovery task.',
+        p_type: 'recovery',
       });
     }
   }
@@ -193,11 +193,11 @@ export async function assignCleanupWorker(hotspotReportId: string, workerId: str
     .maybeSingle();
 
   if (worker) {
-    await supabase.from('notifications').insert({
-      profile_id: worker.profile_id,
-      title: 'Cleanup Assignment',
-      message: 'You have been assigned a hotspot cleanup task.',
-      type: 'hotspot',
+    await supabase.rpc('create_notification', {
+      target_profile_id: worker.profile_id,
+      p_title: 'Cleanup Assignment',
+      p_message: 'You have been assigned a hotspot cleanup task.',
+      p_type: 'hotspot',
     });
   }
 
@@ -292,13 +292,53 @@ export async function toggleWorkerActive(workerId: string, isActive: boolean) {
 }
 
 export async function assignRoute(wardId: string, workerId: string, dayOfWeek: string, startTime: string, endTime: string) {
-  const { data, error } = await supabase
+  const { data: route, error } = await supabase
     .from('routes')
     .insert({ ward_id: wardId, worker_id: workerId, day_of_week: dayOfWeek, collection_window_start: startTime, collection_window_end: endTime })
     .select()
     .maybeSingle();
   if (error) throw error;
-  return data;
+  if (!route) return route;
+
+  // Pull in every household in this ward so the route actually has stops.
+  const { data: households, error: hErr } = await supabase
+    .from('households')
+    .select('id')
+    .eq('ward_id', wardId);
+  if (hErr) throw hErr;
+  if (!households || households.length === 0) return route;
+
+  const routeHouseholds = households.map((h, i) => ({
+    route_id: route.id,
+    household_id: h.id,
+    sequence_order: i,
+  }));
+  const { error: rhErr } = await supabase.from('route_households').insert(routeHouseholds);
+  if (rhErr) throw rhErr;
+
+  // Generate a collection task for each household on the next occurrence
+  // of this route's day of week, so the route isn't just metadata.
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const targetDay = dayNames.indexOf(dayOfWeek.toLowerCase());
+  const today = new Date();
+  const scheduledDate = new Date(today);
+  if (targetDay >= 0) {
+    const diff = (targetDay - today.getDay() + 7) % 7;
+    scheduledDate.setDate(today.getDate() + diff);
+  }
+  const dateStr = scheduledDate.toISOString().slice(0, 10);
+
+  const tasks = households.map((h) => ({
+    route_id: route.id,
+    household_id: h.id,
+    worker_id: workerId,
+    scheduled_date: dateStr,
+    status: 'scheduled' as const,
+  }));
+  const { error: taskErr } = await supabase.from('collection_tasks').insert(tasks);
+  if (taskErr) throw taskErr;
+
+  return route;
 }
 
 export async function scheduleEwaste(requestId: string, date: string, workerId: string) {
@@ -318,11 +358,11 @@ export async function scheduleEwaste(requestId: string, date: string, workerId: 
     .maybeSingle();
 
   if (worker) {
-    await supabase.from('notifications').insert({
-      profile_id: worker.profile_id,
-      title: 'E-Waste Pickup Scheduled',
-      message: `E-waste pickup scheduled for ${date}.`,
-      type: 'ewaste',
+    await supabase.rpc('create_notification', {
+      target_profile_id: worker.profile_id,
+      p_title: 'E-Waste Pickup Scheduled',
+      p_message: `E-waste pickup scheduled for ${date}.`,
+      p_type: 'ewaste',
     });
   }
 

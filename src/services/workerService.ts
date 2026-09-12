@@ -4,7 +4,7 @@ import type { Worker, Route, CollectionTask, CleanupAssignment, CollectionStatus
 export async function getWorkerByProfile(profileId: string) {
   const { data, error } = await supabase
     .from('workers')
-    .select('*')
+    .select('*, assigned_ward:wards(name), municipality:municipalities(name)')
     .eq('profile_id', profileId)
     .maybeSingle();
   if (error) throw error;
@@ -84,11 +84,11 @@ export async function updateTaskStatus(taskId: string, status: CollectionStatus,
         unavailable: 'Collection Unavailable',
         inaccessible: 'Lane Inaccessible',
       };
-      await supabase.from('notifications').insert({
-        profile_id: household.profile_id,
-        title: titles[status] || 'Collection Update',
-        message: `Your waste collection status has been updated to: ${status.replace('_', ' ')}.`,
-        type: 'status',
+      await supabase.rpc('create_notification', {
+        target_profile_id: household.profile_id,
+        p_title: titles[status] || 'Collection Update',
+        p_message: `Your waste collection status has been updated to: ${status.replace('_', ' ')}.`,
+        p_type: 'status',
       });
     }
   }
@@ -158,12 +158,15 @@ export async function completeRecovery(missedPickupId: string) {
 
   // Notify household
   if (data) {
-    await supabase.from('notifications').insert({
-      profile_id: (await supabase.from('households').select('profile_id').eq('id', data.household_id).maybeSingle()).data?.profile_id,
-      title: 'Missed Pickup Resolved',
-      message: 'Your missed pickup complaint has been resolved. Recovery collection completed.',
-      type: 'recovery',
-    });
+    const { data: hh } = await supabase.from('households').select('profile_id').eq('id', data.household_id).maybeSingle();
+    if (hh?.profile_id) {
+      await supabase.rpc('create_notification', {
+        target_profile_id: hh.profile_id,
+        p_title: 'Missed Pickup Resolved',
+        p_message: 'Your missed pickup complaint has been resolved. Recovery collection completed.',
+        p_type: 'recovery',
+      });
+    }
   }
 
   return data;

@@ -53,6 +53,8 @@ export interface Worker {
   assigned_ward_id: string | null;
   is_active: boolean;
   created_at: string;
+  assigned_ward?: { name: string } | null;
+  municipality?: { name: string } | null;
 }
 
 export interface Route {

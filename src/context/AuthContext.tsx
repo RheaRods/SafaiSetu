@@ -8,7 +8,7 @@ interface AuthContextValue {
   profile: Profile | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string, fullName: string, phone: string, role: UserRole) => Promise<{ error: string | null }>;
+  signUp: (email: string, password: string, fullName: string, phone: string, role: UserRole, address?: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -68,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message ?? null };
   };
 
-  const signUp = async (email: string, password: string, fullName: string, phone: string, role: UserRole) => {
+  const signUp = async (email: string, password: string, fullName: string, phone: string, role: UserRole, address?: string) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -82,17 +82,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await new Promise((r) => setTimeout(r, 500));
       await fetchProfile(data.user.id);
 
-      // Create role-specific records
+      // Look up an existing municipality/ward to assign the new account to.
+      // The system currently only has one of each; this stays correct if
+      // more are added later since it doesn't hardcode an id.
+      const { data: ward } = await supabase
+        .from('wards')
+        .select('id, municipality_id')
+        .limit(1)
+        .maybeSingle();
+
       if (role === 'household') {
-        await supabase.from('households').insert({
+        const { error: hErr } = await supabase.from('households').insert({
           profile_id: data.user.id,
-          address_line: 'Please update your address',
+          address_line: address || 'Address not provided',
           waste_type: 'both',
+          ward_id: ward?.id ?? null,
         });
+        if (hErr) console.error('Failed to create household record:', hErr);
       } else if (role === 'worker') {
-        // Worker record needs a municipality_id — supervisor must assign later
-        // For now, skip; supervisor can add them via the worker management UI
+        if (!ward) {
+          console.error('Cannot create worker record: no municipality/ward exists yet.');
+        } else {
+          const { error: wErr } = await supabase.from('workers').insert({
+            profile_id: data.user.id,
+            municipality_id: ward.municipality_id,
+            assigned_ward_id: ward.id,
+          });
+          if (wErr) console.error('Failed to create worker record:', wErr);
+        }
       }
+      // Supervisors need no extra table — profiles.role is sufficient.
     }
     return { error: null };
   };

@@ -161,7 +161,7 @@ export default function HouseholdDashboard() {
   {tab === 'schedule' && <ScheduleTab weekSchedule={weekSchedule} />}
   {tab === 'history' && <HistoryTab history={history} />}
 
-  {modal === 'missed' && <MissedPickupModal householdId={household.id} onClose={() => setModal(null)} onSubmitted={fetchAll} />}
+  {modal === 'missed' && <MissedPickupModal householdId={household.id} taskId={todayTask?.id ?? null} onClose={() => setModal(null)} onSubmitted={fetchAll} />}
   {modal === 'hotspot' && <HotspotModal profileId={profile!.id} wardId={household.ward_id} defaultLat={household.latitude} defaultLng={household.longitude} onClose={() => setModal(null)} onSubmitted={fetchAll} />}
   {modal === 'ewaste' && <EwasteModal householdId={household.id} onClose={() => setModal(null)} onSubmitted={fetchAll} />}
   </AppShell>
@@ -362,7 +362,7 @@ function HistoryTab({ history }: { history: CollectionTask[] }) {
   );
 }
 
-function MissedPickupModal({ householdId, onClose, onSubmitted }: { householdId: string; onClose: () => void; onSubmitted: () => void }) {
+function MissedPickupModal({ householdId, taskId, onClose, onSubmitted }: { householdId: string; taskId: string | null; onClose: () => void; onSubmitted: () => void }) {
   const [reason, setReason] = useState<MissedReason>('worker_did_not_arrive');
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -378,7 +378,7 @@ function MissedPickupModal({ householdId, onClose, onSubmitted }: { householdId:
   const handleSubmit = async () => {
   setSubmitting(true);
   try {
-  await reportMissedPickup(householdId, null, reason, description);
+  await reportMissedPickup(householdId, taskId, reason, description);
   onSubmitted();
   onClose();
   } catch (err) {

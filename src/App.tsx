@@ -6,6 +6,7 @@ import HouseholdDashboard from '@/pages/household/HouseholdDashboard';
 import WorkerDashboard from '@/pages/worker/WorkerDashboard';
 import SupervisorDashboard from '@/pages/supervisor/SupervisorDashboard';
 import { LoadingSpinner } from '@/components/ui';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) {
   const { profile, loading } = useAuth();
@@ -27,6 +28,7 @@ function RootRedirect() {
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <AuthProvider>
       <BrowserRouter>
         <Routes>
@@ -40,5 +42,6 @@ export default function App() {
         </Routes>
       </BrowserRouter>
     </AuthProvider>
+    </ErrorBoundary>
   );
 }
