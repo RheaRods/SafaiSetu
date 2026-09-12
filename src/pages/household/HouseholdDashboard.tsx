@@ -4,8 +4,9 @@ import AppShell from '@/components/AppShell';
 import { Card, PageHeader, LoadingSpinner, EmptyState, StatusBadge } from '@/components/ui';
 import {
   Calendar, Clock, Trash2, MapPin, AlertTriangle, Recycle, CheckCircle2,
-  History, X, Camera
+  History, X, Camera, Bell
 } from 'lucide-react';
+import { useCollectionReminder } from '@/hooks/useCollectionReminder';
 import {
   getHousehold, getTodayTasks, getWeeklySchedule, getCollectionHistory,
   reportMissedPickup, requestEwastePickup, getEwasteRequests, getMissedPickups
@@ -71,6 +72,12 @@ export default function HouseholdDashboard() {
     return () => { channel.unsubscribe(); };
   }, [profile, fetchAll]);
 
+  const reminder = useCollectionReminder(
+    profile?.id,
+    todayTask?.route?.collection_window_start,
+    todayTask?.scheduled_date,
+  );
+
   if (loading) return <AppShell><LoadingSpinner /></AppShell>;
   if (!household) return (
     <AppShell>
@@ -86,6 +93,21 @@ export default function HouseholdDashboard() {
         title={`Hello, ${profile?.full_name?.split(' ')[0]}`}
         subtitle={household.address_line}
       />
+
+      {/* Collection reminder banner */}
+      {reminder.active && (
+        <div className="mb-6 p-4 rounded-xl bg-amber-50 border-2 border-amber-200 animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+              <Bell className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <p className="font-semibold text-amber-900">Collection Reminder</p>
+              <p className="text-sm text-amber-700">{reminder.message}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Quick actions */}
       <div className="grid grid-cols-3 gap-3 mb-6">
