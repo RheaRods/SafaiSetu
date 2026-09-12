@@ -5,7 +5,7 @@ import { Card, PageHeader, LoadingSpinner, EmptyState, StatusBadge } from '@/com
 import MapView from '@/components/MapView';
 import {
   Route as RouteIcon, CheckCircle2, XCircle, MapPin, Clock, Users,
-  AlertTriangle, RefreshCw, Trash2, Camera, X, Road, Truck, ShieldAlert, PackageOpen
+  AlertTriangle, RefreshCw, Trash2, Camera, X
 } from 'lucide-react';
 import { getWorkerByProfile, getTodayTasks, updateTaskStatus, getRecoveryAssignments, completeRecovery, getCleanupAssignments, completeCleanup } from '@/services/workerService';
 import { supabase } from '@/lib/supabase';

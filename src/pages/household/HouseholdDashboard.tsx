@@ -4,7 +4,7 @@ import AppShell from '@/components/AppShell';
 import { Card, PageHeader, LoadingSpinner, EmptyState, StatusBadge } from '@/components/ui';
 import {
   Calendar, Clock, Trash2, MapPin, AlertTriangle, Recycle, CheckCircle2,
-  History, X, Camera, Upload
+  History, X, Camera
 } from 'lucide-react';
 import {
   getHousehold, getTodayTasks, getWeeklySchedule, getCollectionHistory,
