@@ -31,6 +31,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     setProfile(data as Profile | null);
+
+    // Safety net for recurring task generation: this is normally handled
+    // by a daily pg_cron job, but not every Supabase plan supports
+    // pg_cron. Calling it here too (it's idempotent — safe to call more
+    // than once a day) guarantees today's tasks exist even without cron.
+    supabase.rpc('generate_daily_tasks').then(({ error: rpcErr }) => {
+      if (rpcErr) console.error('generate_daily_tasks fallback failed:', rpcErr);
+    });
   }, []);
 
   useEffect(() => {

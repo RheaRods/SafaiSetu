@@ -363,8 +363,16 @@ export async function assignRoute(
     worker_id: workerId,
     scheduled_date: dateStr,
     status: 'scheduled' as const,
+    completed_at: null,
+    worker_note: null,
+    latitude: null,
+    longitude: null,
   }));
-  const { error: taskErr } = await supabase.from('collection_tasks').insert(tasks);
+  // Reassigning a household that already has a task for this date should
+  // reset it (new worker/route, status back to scheduled) rather than
+  // silently skip it — households shouldn't stay stuck on "collected"
+  // from a previous assignment after a supervisor reassigns them.
+  const { error: taskErr } = await supabase.from('collection_tasks').upsert(tasks, { onConflict: 'household_id,scheduled_date' });
   if (taskErr) throw taskErr;
 
   return route;
