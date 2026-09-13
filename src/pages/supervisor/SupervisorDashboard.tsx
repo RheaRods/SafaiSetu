@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import AppShell from '@/components/AppShell';
-import { Card, PageHeader, LoadingSpinner, EmptyState, StatusBadge } from '@/components/ui';
+import { LoadingSpinner, EmptyState, StatusBadge } from '@/components/ui';
 import MapView from '@/components/MapView';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -9,7 +9,7 @@ import {
 } from 'recharts';
 import {
   Users, CheckCircle2, AlertTriangle, MapPin, Trash2, RefreshCw, X,
-  TrendingUp, Activity, Ban, Check, Calendar, ChevronRight, ClipboardList, Route
+  TrendingUp, Activity, Ban, Check, Calendar, ChevronRight, ChevronDown, LayoutGrid
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import {
@@ -18,13 +18,26 @@ import {
   toggleWorkerActive, getWorkers, getWeeklyStats, scheduleEwaste, assignRoute, getHouseholdsInWard,
   getTodayTasks, rescheduleTask, getRoutesOverview
 } from '@/services/supervisorService';
-import type { Worker, HotspotReport, MissedPickup, EwasteRequest } from '@/types';
+import type { HotspotReport } from '@/types';
 
-type Tab = 'overview' | 'progress' | 'tasks' | 'areas' | 'missed' | 'hotspots' | 'ewaste' | 'workers' | 'charts' | 'map';
+type Section = 'overview' | 'requests' | 'team' | 'insights';
+type RequestFilter = 'all' | 'missed' | 'hotspots' | 'ewaste';
+type InsightsView = 'charts' | 'map';
+
+const SECTIONS: [Section, string, typeof Users][] = [
+  ['overview', 'Overview', Activity],
+  ['requests', 'Requests', AlertTriangle],
+  ['team', 'Team', Users],
+  ['insights', 'Insights', LayoutGrid],
+];
 
 export default function SupervisorDashboard() {
   const { profile } = useAuth();
-  const [tab, setTab] = useState<Tab>('overview');
+  const [section, setSection] = useState<Section>('overview');
+  const [requestFilter, setRequestFilter] = useState<RequestFilter>('all');
+  const [insightsView, setInsightsView] = useState<InsightsView>('charts');
+  const [expandedWorkerId, setExpandedWorkerId] = useState<string | null>(null);
+
   const [progress, setProgress] = useState<any[]>([]);
   const [todayTasks, setTodayTasks] = useState<any[]>([]);
   const [routes, setRoutes] = useState<any[]>([]);
@@ -72,7 +85,6 @@ export default function SupervisorDashboard() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // Realtime subscription for collection_tasks, missed_pickups, hotspot_reports
   useEffect(() => {
   if (!profile?.municipality_id) return;
   const channel = supabase.channel('supervisor-realtime')
@@ -161,19 +173,7 @@ export default function SupervisorDashboard() {
   const totalMissed = missedQueue.filter((m) => m.status === 'reported').length;
   const totalHotspots = hotspotQueue.filter((h) => h.status !== 'resolved').length;
   const totalEwaste = ewasteReqs.filter((e) => e.status === 'requested').length;
-
-  const tabs: [Tab, string, typeof Users][] = [
-  ['overview', 'Overview', Activity],
-  ['progress', 'Live Progress', TrendingUp],
-  ['tasks', "Today's Tasks", ClipboardList],
-  ['areas', 'Worker Areas', Route],
-  ['missed', 'Missed Pickups', AlertTriangle],
-  ['hotspots', 'Hotspots', MapPin],
-  ['ewaste', 'E-Waste', Trash2],
-  ['workers', 'Workers', Users],
-  ['charts', 'Charts', TrendingUp],
-  ['map', 'Map', MapPin],
-  ];
+  const totalOpenRequests = totalMissed + totalHotspots + totalEwaste;
 
   const hotspotMapMarkers = hotspotQueue
   .filter((h) => h.latitude && h.longitude)
@@ -181,442 +181,494 @@ export default function SupervisorDashboard() {
   id: h.id,
   latitude: h.latitude!,
   longitude: h.longitude!,
-  color: h.status === 'new' ? '#ef4444' : h.status === 'under_review' ? '#f97316' :
-  h.status === 'cleanup_assigned' ? '#3b82f6' : h.status === 'resolved' ? '#10b981' : '#a855f7',
+  color: h.status === 'new' ? '#A63D2F' : h.status === 'under_review' ? '#f97316' :
+  h.status === 'cleanup_assigned' ? '#B5673A' : h.status === 'resolved' ? '#2E4A2C' : '#a855f7',
   popup: `<strong>${h.status.replace(/_/g, ' ')}</strong><br/>${h.description || 'No description'}<br/>Urgency: ${h.urgency}`,
   }));
 
+  const statCards = [
+    { icon: Users, label: 'Households', value: totalHouseholds },
+    { icon: CheckCircle2, label: 'Collected', value: totalCollected },
+    { icon: AlertTriangle, label: 'Missed', value: totalMissed },
+    { icon: MapPin, label: 'Hotspots', value: totalHotspots },
+    { icon: Trash2, label: 'E-Waste', value: totalEwaste },
+  ];
+
   return (
   <AppShell>
-  <PageHeader
-  title="Supervisor Dashboard"
-  subtitle={municipalityName || 'Supervisor Dashboard'}
-  />
-
-  {/* Stats overview cards */}
-  <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
-  <StatCard icon={Users} label="Households" value={totalHouseholds} color="blue" />
-  <StatCard icon={CheckCircle2} label="Collected" value={totalCollected} color="emerald" />
-  <StatCard icon={AlertTriangle} label="Missed" value={totalMissed} color="red" />
-  <StatCard icon={MapPin} label="Hotspots" value={totalHotspots} color="orange" />
-  <StatCard icon={Trash2} label="E-Waste" value={totalEwaste} color="teal" />
+  <div className="mb-5">
+    <h1 className="text-xl font-display font-semibold text-ink leading-tight">Supervisor Dashboard</h1>
+    <p className="text-ink/45 text-sm mt-0.5">{municipalityName || 'Loading municipality...'}</p>
   </div>
 
-  {/* Tabs */}
-  <div className="flex gap-1 mb-6 bg-sand-light p-1 rounded-lg overflow-x-auto">
-  {tabs.map(([key, label, Icon]) => (
-  <button
-  key={key}
-  onClick={() => setTab(key)}
-  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition whitespace-nowrap ${
-  tab === key ? 'bg-white text-ink ' : 'text-ink/50 hover:text-ink/70'
-  }`}
-  >
-  <Icon className="w-4 h-4" />
-  {label}
-  {key === 'missed' && totalMissed > 0 && <Badge color="bg-brick">{totalMissed}</Badge>}
-  {key === 'hotspots' && totalHotspots > 0 && <Badge color="bg-orange-500">{totalHotspots}</Badge>}
-  {key === 'ewaste' && totalEwaste > 0 && <Badge color="bg-forest">{totalEwaste}</Badge>}
-  </button>
-  ))}
+  {/* Compact stat strip - one bordered row, no nested cards */}
+  <div className="grid grid-cols-2 sm:grid-cols-5 border border-sand-dark rounded-lg bg-white mb-5 overflow-hidden divide-x divide-y sm:divide-y-0 divide-sand">
+    {statCards.map((s, i) => (
+      <div key={i} className="px-3.5 py-3 flex items-center gap-2.5">
+        <s.icon className="w-4 h-4 text-ink/35 flex-shrink-0" />
+        <div className="min-w-0">
+          <p className="text-lg font-semibold text-ink leading-none">{s.value}</p>
+          <p className="text-[11px] text-ink/45 leading-none mt-1 truncate">{s.label}</p>
+        </div>
+      </div>
+    ))}
   </div>
 
-  {tab === 'overview' && (
-  <div className="space-y-4">
-  {/* Live progress summary */}
-  <Card className="p-5">
-  <h3 className="font-semibold text-ink mb-4">Live Worker Progress</h3>
-  <div className="space-y-3">
-  {progress.length === 0 ? (
-  <EmptyState icon={TrendingUp} title="No active workers" message="No workers are on duty right now." />
-  ) : (
-  progress.map((p) => (
-  <div key={p.worker.id} className="flex items-center gap-4">
-  <div className="w-10 h-10 rounded-full bg-clay/5 flex items-center justify-center flex-shrink-0">
-  <span className="text-sm font-bold text-clay-dark">
-  {p.profile?.full_name?.charAt(0) || 'W'}
-  </span>
+  {/* Section switcher - one row, same pattern on every screen size */}
+  <div className="flex gap-1.5 mb-5 overflow-x-auto pb-0.5">
+    {SECTIONS.map(([key, label, Icon]) => {
+      const active = section === key;
+      const count = key === 'requests' ? totalOpenRequests : null;
+      return (
+        <button
+          key={key}
+          onClick={() => setSection(key)}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
+            active ? 'bg-forest text-paper' : 'bg-white border border-sand-dark text-ink/60 hover:text-ink'
+          }`}
+        >
+          <Icon className="w-4 h-4" />
+          {label}
+          {!!count && (
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${active ? 'bg-paper/25 text-paper' : 'bg-brick text-white'}`}>
+              {count}
+            </span>
+          )}
+        </button>
+      );
+    })}
   </div>
-  <div className="flex-1 min-w-0">
-  <div className="flex items-center justify-between mb-1">
-  <span className="text-sm font-medium text-ink">{p.profile?.full_name}</span>
-  <span className="text-xs text-ink/40">{p.completed}/{p.total} done</span>
-  </div>
-  <div className="h-2 rounded-full bg-sand-light overflow-hidden">
-  <div
-  className="h-full rounded-full bg-gradient-to-r from-teal-500 to-emerald-500 transition-all duration-500"
-  style={{ width: `${p.total > 0 ? (p.completed / p.total) * 100 : 0}%` }}
-  />
-  </div>
-  </div>
-  </div>
-  ))
-  )}
-  </div>
-  </Card>
 
-  {/* Recent missed pickups */}
-  <Card className="p-5">
-  <div className="flex items-center justify-between mb-3">
-  <h3 className="font-semibold text-ink">Recent Complaints</h3>
-  <button onClick={() => setTab('missed')} className="text-xs text-forest font-medium hover:underline flex items-center gap-1">
-  View all <ChevronRight className="w-3 h-3" />
-  </button>
-  </div>
-  {missedQueue.length === 0 ? (
-  <p className="text-sm text-ink/40 py-4 text-center">No complaints reported</p>
-  ) : (
-  <div className="space-y-2">
-  {missedQueue.slice(0, 3).map((m) => (
-  <div key={m.id} className="flex items-center justify-between p-3 rounded-lg bg-paper">
-  <div className="min-w-0">
-  <p className="text-sm font-medium text-ink/70 truncate">{m.household?.address_line}</p>
-  <p className="text-xs text-ink/40">{m.reason.replace(/_/g, ' ')}</p>
-  </div>
-  <StatusBadge status={m.status} />
-  </div>
-  ))}
-  </div>
-  )}
-  </Card>
-  </div>
-  )}
+  {/* ===================== OVERVIEW ===================== */}
+  {section === 'overview' && (
+    <div className="grid md:grid-cols-5 gap-4">
+      <div className="md:col-span-3 bg-white rounded-lg border border-sand p-4">
+        <h3 className="font-semibold text-ink mb-3 text-sm">Live Worker Progress</h3>
+        {progress.length === 0 ? (
+          <EmptyState icon={TrendingUp} title="No active workers" message="No workers are on duty right now." />
+        ) : (
+          <div className="space-y-3">
+            {progress.map((p) => (
+              <div key={p.worker.id} className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-clay/10 flex items-center justify-center flex-shrink-0">
+                  <span className="text-xs font-bold text-clay-dark">{p.profile?.full_name?.charAt(0) || 'W'}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium text-ink truncate">{p.profile?.full_name}</span>
+                    <span className="text-xs text-ink/40 flex-shrink-0 ml-2">{p.completed}/{p.total} done</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-sand-light overflow-hidden">
+                    <div className="h-full rounded-full bg-forest transition-all duration-500" style={{ width: `${p.total > 0 ? (p.completed / p.total) * 100 : 0}%` }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-  {tab === 'progress' && (
-  <div className="space-y-3">
-  {progress.length === 0 ? (
-  <EmptyState icon={TrendingUp} title="No data" message="No worker progress data available." />
-  ) : (
-  progress.map((p) => (
-  <Card key={p.worker.id} className="p-5">
-  <div className="flex items-center gap-3 mb-3">
-  <div className="w-11 h-11 rounded-full bg-clay/10 flex items-center justify-center">
-  <span className="font-bold text-clay-dark">{p.profile?.full_name?.charAt(0)}</span>
-  </div>
-  <div className="flex-1">
-  <p className="font-semibold text-ink">{p.profile?.full_name}</p>
-  <p className="text-xs text-ink/40">{p.total} households assigned</p>
-  </div>
-  </div>
-  <div className="grid grid-cols-3 gap-3 mb-3">
-  <div className="text-center p-2 rounded-lg bg-forest/5">
-  <p className="text-xl font-bold text-forest-dark">{p.completed}</p>
-  <p className="text-xs text-forest">Completed</p>
-  </div>
-  <div className="text-center p-2 rounded-lg bg-clay/5">
-  <p className="text-xl font-bold text-clay-dark">{p.pending}</p>
-  <p className="text-xs text-clay-dark">Pending</p>
-  </div>
-  <div className="text-center p-2 rounded-lg bg-brick/5">
-  <p className="text-xl font-bold text-brick">{p.missed}</p>
-  <p className="text-xs text-brick">Issues</p>
-  </div>
-  </div>
-  <div className="h-2.5 rounded-full bg-sand-light overflow-hidden">
-  <div
-  className="h-full rounded-full bg-gradient-to-r from-teal-500 to-emerald-500 transition-all duration-500"
-  style={{ width: `${p.total > 0 ? (p.completed / p.total) * 100 : 0}%` }}
-  />
-  </div>
-  </Card>
-  ))
-  )}
-  </div>
+      <div className="md:col-span-2 bg-white rounded-lg border border-sand p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-ink text-sm">Needs Attention</h3>
+          {totalOpenRequests > 0 && (
+            <button onClick={() => setSection('requests')} className="text-xs text-forest font-medium hover:underline flex items-center gap-0.5">
+              View all <ChevronRight className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+        {totalOpenRequests === 0 ? (
+          <p className="text-sm text-ink/40 py-6 text-center">Nothing needs attention right now.</p>
+        ) : (
+          <div className="divide-y divide-sand-light -mx-4 px-4">
+            {missedQueue.filter((m) => m.status === 'reported').slice(0, 2).map((m) => (
+              <button key={m.id} onClick={() => setSection('requests')} className="w-full flex items-center justify-between py-2.5 text-left">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-ink/70 truncate">{m.household?.address_line}</p>
+                  <p className="text-xs text-ink/40">Missed pickup &bull; {m.reason.replace(/_/g, ' ')}</p>
+                </div>
+                <ChevronRight className="w-3.5 h-3.5 text-ink/30 flex-shrink-0" />
+              </button>
+            ))}
+            {hotspotQueue.filter((h) => h.status === 'new').slice(0, 2).map((h) => (
+              <button key={h.id} onClick={() => setSection('requests')} className="w-full flex items-center justify-between py-2.5 text-left">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-ink/70 truncate">{h.description || 'Hotspot report'}</p>
+                  <p className="text-xs text-ink/40">Hotspot &bull; {h.urgency} urgency</p>
+                </div>
+                <ChevronRight className="w-3.5 h-3.5 text-ink/30 flex-shrink-0" />
+              </button>
+            ))}
+            {ewasteReqs.filter((e) => e.status === 'requested').slice(0, 2).map((e) => (
+              <button key={e.id} onClick={() => setSection('requests')} className="w-full flex items-center justify-between py-2.5 text-left">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-ink/70 truncate">{e.item_description}</p>
+                  <p className="text-xs text-ink/40">E-Waste request</p>
+                </div>
+                <ChevronRight className="w-3.5 h-3.5 text-ink/30 flex-shrink-0" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   )}
 
-  {tab === 'tasks' && (
-  <div className="space-y-3">
-  {todayTasks.length === 0 ? (
-  <EmptyState icon={ClipboardList} title="No tasks today" message="No collection tasks are scheduled for today." />
-  ) : (
-  todayTasks.map((t) => (
-  <Card key={t.id} className="p-4">
-  <div className="flex items-start justify-between gap-3">
-  <div className="min-w-0">
-  <p className="font-semibold text-ink truncate">{t.household?.address_line}</p>
-  {t.household?.landmark && <p className="text-sm text-ink/40">{t.household.landmark}</p>}
-  <p className="text-xs text-ink/50 mt-1">
-  {t.worker?.profile?.full_name || 'Unassigned'} • {t.scheduled_date}
-  </p>
-  {t.worker_note && <p className="text-sm text-ink/60 mt-1.5">{t.worker_note}</p>}
-  </div>
-  <StatusBadge status={t.status} />
-  </div>
-  {t.status !== 'collected' && (
-  <button
-  onClick={() => setRescheduleModal({ taskId: t.id })}
-  className="w-full flex items-center justify-center gap-1.5 bg-clay hover:bg-clay-dark text-white text-sm font-medium py-2 rounded-lg transition mt-3"
-  >
-  <RefreshCw className="w-4 h-4" />
-  Reschedule
-  </button>
-  )}
-  </Card>
-  ))
-  )}
-  </div>
+  {/* ===================== REQUESTS ===================== */}
+  {section === 'requests' && (
+    <div>
+      <div className="flex gap-1.5 mb-3">
+        {([
+          ['all', 'All'],
+          ['missed', `Missed${totalMissed ? ` (${totalMissed})` : ''}`],
+          ['hotspots', `Hotspots${totalHotspots ? ` (${totalHotspots})` : ''}`],
+          ['ewaste', `E-Waste${totalEwaste ? ` (${totalEwaste})` : ''}`],
+        ] as [RequestFilter, string][]).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setRequestFilter(key)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
+              requestFilter === key ? 'bg-ink text-paper' : 'bg-white border border-sand-dark text-ink/55'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-4">
+        {(requestFilter === 'all' || requestFilter === 'missed') && (
+          <div className="bg-white rounded-lg border border-sand">
+            <p className="px-3.5 pt-3 pb-1 text-xs font-medium text-ink/40 uppercase tracking-wide">Missed Pickups</p>
+            {missedQueue.length === 0 ? (
+              <div className="p-4"><EmptyState icon={AlertTriangle} title="No complaints" message="No missed pickup complaints reported." /></div>
+            ) : (
+              <div className="divide-y divide-sand">
+                {missedQueue.map((m) => (
+                  <div key={m.id} className="p-3.5">
+                    <div className="flex items-start justify-between gap-3 mb-1">
+                      <div className="min-w-0">
+                        <p className="font-medium text-ink text-sm truncate">{m.household?.address_line}</p>
+                        {m.household?.landmark && <p className="text-xs text-ink/40">{m.household.landmark}</p>}
+                        <p className="text-xs text-ink/50 mt-1">
+                          {m.reason.replace(/_/g, ' ')} &bull; {new Date(m.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </p>
+                        {m.description && <p className="text-sm text-ink/60 mt-1">{m.description}</p>}
+                      </div>
+                      <StatusBadge status={m.status} />
+                    </div>
+                    {m.status === 'reported' && (
+                      <div className="flex gap-2 mt-2.5">
+                        <button
+                          onClick={() => setAssignModal({ type: 'recovery', id: m.id })}
+                          className="flex-1 flex items-center justify-center gap-1.5 bg-clay hover:bg-clay-dark text-white text-sm font-medium py-1.5 rounded-md transition"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          Assign Recovery
+                        </button>
+                        <button
+                          onClick={() => handleReject(m.id)}
+                          className="flex items-center justify-center gap-1.5 bg-sand-light hover:bg-sand text-ink/70 text-sm font-medium px-4 py-1.5 rounded-md transition"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          Reject
+                        </button>
+                      </div>
+                    )}
+                    {m.assigned_worker && (
+                      <p className="text-xs text-clay mt-1.5">Assigned to: {m.assigned_worker.profile?.full_name || 'A worker'}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {(requestFilter === 'all' || requestFilter === 'hotspots') && (
+          <div className="bg-white rounded-lg border border-sand">
+            <p className="px-3.5 pt-3 pb-1 text-xs font-medium text-ink/40 uppercase tracking-wide">Hotspots</p>
+            {hotspotQueue.length === 0 ? (
+              <div className="p-4"><EmptyState icon={MapPin} title="No hotspots" message="No hotspot reports in your area." /></div>
+            ) : (
+              <div className="divide-y divide-sand">
+                {hotspotQueue.map((h) => (
+                  <div key={h.id} className="p-3.5">
+                    <div className="flex items-start justify-between mb-1">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <StatusBadge status={h.status} />
+                          {h.recurrence_count > 1 && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-ink/10 text-ink/70">
+                              Recurring ({h.recurrence_count}x)
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-ink/70 mt-1">{h.description}</p>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs text-ink/40">
+                          <span>Category: {h.waste_category.replace(/_/g, ' ')}</span>
+                          <span>Urgency: <span className={h.urgency === 'high' ? 'text-brick font-medium' : h.urgency === 'medium' ? 'text-clay-dark' : 'text-forest'}>{h.urgency}</span></span>
+                          <span>{new Date(h.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
+                        </div>
+                      </div>
+                    </div>
+                    {(h.photo_url || h.cleanup_assignments?.[0]?.completion_photo_url) && (
+                      <div className="flex gap-2 mb-2">
+                        {h.photo_url && (
+                          <a href={h.photo_url} target="_blank" rel="noopener noreferrer" className="block">
+                            <img src={h.photo_url} alt="Reported dump" className="w-16 h-16 object-cover rounded-lg border border-sand-dark" />
+                            <p className="text-[10px] text-ink/40 mt-0.5 text-center">Reported</p>
+                          </a>
+                        )}
+                        {h.cleanup_assignments?.[0]?.completion_photo_url && (
+                          <a href={h.cleanup_assignments[0].completion_photo_url} target="_blank" rel="noopener noreferrer" className="block">
+                            <img src={h.cleanup_assignments[0].completion_photo_url} alt="Cleanup evidence" className="w-16 h-16 object-cover rounded-lg border border-forest" />
+                            <p className="text-[10px] text-forest mt-0.5 text-center">Cleaned</p>
+                          </a>
+                        )}
+                      </div>
+                    )}
+                    {h.latitude && h.longitude && (
+                      <p className="text-xs text-ink/40 mb-2">Location: {h.latitude.toFixed(4)}, {h.longitude.toFixed(4)}</p>
+                    )}
+                    {(h.status === 'new' || h.status === 'under_review') && (
+                      <button
+                        onClick={() => setAssignModal({ type: 'cleanup', id: h.id })}
+                        className="w-full flex items-center justify-center gap-1.5 bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium py-1.5 rounded-md transition"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Assign Cleanup Worker
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {(requestFilter === 'all' || requestFilter === 'ewaste') && (
+          <div className="bg-white rounded-lg border border-sand">
+            <p className="px-3.5 pt-3 pb-1 text-xs font-medium text-ink/40 uppercase tracking-wide">E-Waste Requests</p>
+            {ewasteReqs.length === 0 ? (
+              <div className="p-4"><EmptyState icon={Trash2} title="No requests" message="No e-waste pickup requests." /></div>
+            ) : (
+              <div className="divide-y divide-sand">
+                {ewasteReqs.map((e) => (
+                  <div key={e.id} className="p-3.5">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="font-medium text-ink text-sm">{e.item_description}</p>
+                        {e.preferred_date && <p className="text-xs text-ink/40 mt-0.5">Preferred: {e.preferred_date}</p>}
+                        <p className="text-xs text-ink/50 mt-1">{e.household?.address_line}</p>
+                      </div>
+                      <StatusBadge status={e.status} />
+                    </div>
+                    {e.status === 'requested' && (
+                      <button
+                        onClick={() => setAssignModal({ type: 'ewaste', id: e.id })}
+                        className="mt-2.5 w-full flex items-center justify-center gap-1.5 bg-forest hover:bg-forest-dark text-white text-sm font-medium py-1.5 rounded-md transition"
+                      >
+                        <Calendar className="w-3.5 h-3.5" />
+                        Schedule Pickup
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   )}
 
-  {tab === 'areas' && (
-  <div className="space-y-3">
-  {workers.length === 0 ? (
-  <EmptyState icon={Route} title="No workers" message="Add workers before assigning areas." />
-  ) : (
-  workers.map((w) => {
-  const workerRoutes = routes.filter((r) => r.worker_id === w.id);
-  return <WorkerAreaCard key={w.id} worker={w} routes={workerRoutes} />;
-  })
-  )}
-  </div>
-  )}
-
-  {tab === 'missed' && (
-  <div className="space-y-3">
-  {missedQueue.length === 0 ? (
-  <EmptyState icon={AlertTriangle} title="No complaints" message="No missed pickup complaints reported." />
-  ) : (
-  missedQueue.map((m) => (
-  <Card key={m.id} className="p-4">
-  <div className="flex items-start justify-between mb-2">
-  <div>
-  <p className="font-semibold text-ink">{m.household?.address_line}</p>
-  {m.household?.landmark && <p className="text-sm text-ink/40">{m.household.landmark}</p>}
-  <p className="text-xs text-ink/50 mt-1">
-  {m.reason.replace(/_/g, ' ')} • {new Date(m.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-  </p>
-  {m.description && <p className="text-sm text-ink/60 mt-1.5">{m.description}</p>}
-  </div>
-  <StatusBadge status={m.status} />
-  </div>
-  {m.status === 'reported' && (
-  <div className="flex gap-2 mt-3">
-  <button
-  onClick={() => setAssignModal({ type: 'recovery', id: m.id })}
-  className="flex-1 flex items-center justify-center gap-1.5 bg-clay hover:bg-blue-700 text-white text-sm font-medium py-2 rounded-lg transition"
-  >
-  <RefreshCw className="w-4 h-4" />
-  Assign Recovery
-  </button>
-  <button
-  onClick={() => handleReject(m.id)}
-  className="flex items-center justify-center gap-1.5 bg-sand-light hover:bg-gray-200 text-ink/70 text-sm font-medium px-4 py-2 rounded-lg transition"
-  >
-  <X className="w-4 h-4" />
-  Reject
-  </button>
-  </div>
-  )}
-  {m.assigned_worker && (
-  <p className="text-xs text-clay mt-2">
-  Assigned to: {m.assigned_worker.profile?.full_name || 'A worker'}
-  </p>
-  )}
-  </Card>
-  ))
-  )}
-  </div>
-  )}
-
-  {tab === 'hotspots' && (
-  <div className="space-y-3">
-  {hotspotQueue.length === 0 ? (
-  <EmptyState icon={MapPin} title="No hotspots" message="No hotspot reports in your area." />
-  ) : (
-  hotspotQueue.map((h) => (
-  <Card key={h.id} className="p-4">
-  <div className="flex items-start justify-between mb-2">
-  <div className="flex-1">
-  <div className="flex items-center gap-2 mb-1">
-  <StatusBadge status={h.status} />
-  {h.recurrence_count > 1 && (
-  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-ink/10 text-ink/70">
-  Recurring ({h.recurrence_count}x)
-  </span>
-  )}
-  </div>
-  <p className="text-sm text-ink/70 mt-1.5">{h.description}</p>
-  <div className="flex items-center gap-3 mt-2 text-xs text-ink/40">
-  <span>Category: {h.waste_category.replace(/_/g, ' ')}</span>
-  <span>Urgency: <span className={h.urgency === 'high' ? 'text-brick font-medium' : h.urgency === 'medium' ? 'text-clay-dark' : 'text-forest'}>{h.urgency}</span></span>
-  <span>{new Date(h.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
-  </div>
-  </div>
-  </div>
-  {(h.photo_url || h.cleanup_assignments?.[0]?.completion_photo_url) && (
-  <div className="flex gap-2 mb-2">
-  {h.photo_url && (
-  <a href={h.photo_url} target="_blank" rel="noopener noreferrer" className="block">
-  <img src={h.photo_url} alt="Reported dump" className="w-20 h-20 object-cover rounded-lg border border-sand-dark" />
-  <p className="text-[10px] text-ink/40 mt-0.5 text-center">Reported</p>
-  </a>
-  )}
-  {h.cleanup_assignments?.[0]?.completion_photo_url && (
-  <a href={h.cleanup_assignments[0].completion_photo_url} target="_blank" rel="noopener noreferrer" className="block">
-  <img src={h.cleanup_assignments[0].completion_photo_url} alt="Cleanup evidence" className="w-20 h-20 object-cover rounded-lg border border-forest" />
-  <p className="text-[10px] text-forest mt-0.5 text-center">Cleaned</p>
-  </a>
-  )}
-  </div>
-  )}
-  {h.latitude && h.longitude && (
-  <p className="text-xs text-ink/40 mb-2">Location: {h.latitude.toFixed(4)}, {h.longitude.toFixed(4)}</p>
-  )}
-  {(h.status === 'new' || h.status === 'under_review') && (
-  <button
-  onClick={() => setAssignModal({ type: 'cleanup', id: h.id })}
-  className="w-full flex items-center justify-center gap-1.5 bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium py-2 rounded-lg transition"
-  >
-  <Trash2 className="w-4 h-4" />
-  Assign Cleanup Worker
-  </button>
-  )}
-  </Card>
-  ))
-  )}
-  </div>
-  )}
-
-  {tab === 'ewaste' && (
-  <div className="space-y-3">
-  {ewasteReqs.length === 0 ? (
-  <EmptyState icon={Trash2} title="No requests" message="No e-waste pickup requests." />
-  ) : (
-  ewasteReqs.map((e) => (
-  <Card key={e.id} className="p-4">
-  <div className="flex items-start justify-between">
-  <div>
-  <p className="font-semibold text-ink">{e.item_description}</p>
-  {e.preferred_date && <p className="text-sm text-ink/40 mt-0.5">Preferred: {e.preferred_date}</p>}
-  <p className="text-xs text-ink/50 mt-1">{e.household?.address_line}</p>
-  </div>
-  <StatusBadge status={e.status} />
-  </div>
-  {e.status === 'requested' && (
-  <button
-  onClick={() => setAssignModal({ type: 'ewaste', id: e.id })}
-  className="mt-3 w-full flex items-center justify-center gap-1.5 bg-forest hover:bg-forest-dark text-white text-sm font-medium py-2 rounded-lg transition"
-  >
-  <Calendar className="w-4 h-4" />
-  Schedule Pickup
-  </button>
-  )}
-  </Card>
-  ))
-  )}
-  </div>
-  )}
-
-      {tab === 'workers' && (
-        <div className="space-y-3">
-          {workers.length === 0 ? (
-            <EmptyState icon={Users} title="No workers" message="No workers registered in your municipality." />
-          ) : (
-            workers.map((w) => (
-              <Card key={w.id} className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${w.is_active ? 'bg-blue-100' : 'bg-gray-100'}`}>
-                      <span className={`font-bold ${w.is_active ? 'text-blue-700' : 'text-gray-400'}`}>
+  {/* ===================== TEAM ===================== */}
+  {section === 'team' && (
+    <div className="bg-white rounded-lg border border-sand">
+      {workers.length === 0 ? (
+        <div className="p-4"><EmptyState icon={Users} title="No workers" message="No workers registered in your municipality." /></div>
+      ) : (
+        <div className="divide-y divide-sand">
+          {workers.map((w) => {
+            const isExpanded = expandedWorkerId === w.id;
+            const workerTasks = todayTasks.filter((t) => t.worker_id === w.id);
+            const workerRoutes = routes.filter((r) => r.worker_id === w.id);
+            return (
+              <div key={w.id}>
+                <div className="p-3.5 flex items-center justify-between gap-3">
+                  <button
+                    onClick={() => setExpandedWorkerId(isExpanded ? null : w.id)}
+                    className="flex items-center gap-3 min-w-0 flex-1 text-left"
+                  >
+                    <ChevronDown className={`w-4 h-4 text-ink/30 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${w.is_active ? 'bg-clay/10' : 'bg-sand'}`}>
+                      <span className={`font-bold text-sm ${w.is_active ? 'text-clay-dark' : 'text-ink/30'}`}>
                         {w.profile?.full_name?.charAt(0)}
                       </span>
                     </div>
-                    <div>
-                      <p className="font-semibold text-gray-900">{w.profile?.full_name}</p>
-                      <p className="text-xs text-gray-400">{w.profile?.phone || 'No phone'}</p>
+                    <div className="min-w-0">
+                      <p className="font-medium text-ink text-sm truncate">{w.profile?.full_name}</p>
+                      <p className="text-xs text-ink/40">{w.assigned_ward?.name ? `${w.assigned_ward.name} • ` : ''}{workerTasks.length} task{workerTasks.length === 1 ? '' : 's'} today</p>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${w.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'}`}>
+                  </button>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${w.is_active ? 'bg-forest/10 text-forest' : 'bg-sand text-ink/40'}`}>
                       {w.is_active ? 'Active' : 'Inactive'}
                     </span>
                     <button
                       onClick={() => setAssignModal({ type: 'route', id: w.id })}
-                      className="p-2 rounded-lg text-blue-500 hover:bg-blue-50 transition"
+                      className="p-1.5 rounded-md text-clay hover:bg-clay/10 transition"
                       title="Assign route"
                     >
                       <Calendar className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleToggleWorker(w.id, w.is_active)}
-                      className={`p-2 rounded-lg transition ${w.is_active ? 'text-red-500 hover:bg-red-50' : 'text-emerald-500 hover:bg-emerald-50'}`}
+                      className={`p-1.5 rounded-md transition ${w.is_active ? 'text-brick hover:bg-brick/10' : 'text-forest hover:bg-forest/10'}`}
                     >
                       {w.is_active ? <Ban className="w-4 h-4" /> : <Check className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>
-              </Card>
-            ))
-          )}
+
+                {isExpanded && (
+                  <div className="px-3.5 pb-3.5 pl-11 space-y-3">
+                    <div>
+                      <p className="text-xs font-medium text-ink/40 uppercase tracking-wide mb-1.5">Today's tasks</p>
+                      {workerTasks.length === 0 ? (
+                        <p className="text-sm text-ink/40">No tasks scheduled today.</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {workerTasks.map((t) => (
+                            <div key={t.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-paper">
+                              <div className="min-w-0">
+                                <p className="text-sm text-ink/70 truncate">{t.household?.address_line}</p>
+                                {t.worker_note && <p className="text-xs text-ink/40">{t.worker_note}</p>}
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <StatusBadge status={t.status} />
+                                {t.status !== 'collected' && (
+                                  <button
+                                    onClick={() => setRescheduleModal({ taskId: t.id })}
+                                    className="text-xs text-clay font-medium hover:underline"
+                                  >
+                                    Reschedule
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-medium text-ink/40 uppercase tracking-wide mb-1.5">Assigned areas</p>
+                      {workerRoutes.length === 0 ? (
+                        <p className="text-sm text-ink/40">No area/route assigned yet.</p>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {workerRoutes.map((r) => <RouteRow key={r.id} route={r} />)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  )}
+
+  {/* ===================== INSIGHTS ===================== */}
+  {section === 'insights' && (
+    <div>
+      <div className="flex gap-1.5 mb-3">
+        <button
+          onClick={() => setInsightsView('charts')}
+          className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${insightsView === 'charts' ? 'bg-ink text-paper' : 'bg-white border border-sand-dark text-ink/55'}`}
+        >
+          Charts
+        </button>
+        <button
+          onClick={() => setInsightsView('map')}
+          className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${insightsView === 'map' ? 'bg-ink text-paper' : 'bg-white border border-sand-dark text-ink/55'}`}
+        >
+          Map
+        </button>
+      </div>
+
+      {insightsView === 'charts' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-lg border border-sand p-4">
+            <h3 className="font-semibold text-ink mb-3 text-sm">Daily Collection (This Week)</h3>
+            {stats.daily.length === 0 ? (
+              <EmptyState icon={BarChart} title="No data" message="No collection data for this week." />
+            ) : (
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={stats.daily}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="day" tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                  <Tooltip />
+                  <Bar dataKey="collected" fill="#2E4A2C" name="Collected" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="missed" fill="#A63D2F" name="Missed" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="scheduled" fill="#B5673A" name="Scheduled" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          <div className="bg-white rounded-lg border border-sand p-4">
+            <h3 className="font-semibold text-ink mb-3 text-sm">Collection Status Breakdown</h3>
+            {stats.statusBreakdown.every((s) => s.value === 0) ? (
+              <EmptyState icon={BarChart} title="No data" message="No status data available." />
+            ) : (
+              <ResponsiveContainer width="100%" height={240}>
+                <PieChart>
+                  <Pie
+                    data={stats.statusBreakdown.filter((s) => s.value > 0)}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={85}
+                    label={(entry: any) => `${entry.name}: ${entry.value}`}
+                  >
+                    {stats.statusBreakdown.filter((s) => s.value > 0).map((entry, i) => (
+                      <Cell key={i} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </div>
         </div>
       )}
 
-  {tab === 'charts' && (
-  <div className="space-y-4">
-  <Card className="p-5">
-  <h3 className="font-semibold text-ink mb-4">Daily Collection (This Week)</h3>
-  {stats.daily.length === 0 ? (
-  <EmptyState icon={BarChart} title="No data" message="No collection data for this week." />
-  ) : (
-  <ResponsiveContainer width="100%" height={250}>
-  <BarChart data={stats.daily}>
-  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-  <XAxis dataKey="day" tick={{ fontSize: 12 }} />
-  <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-  <Tooltip />
-  <Bar dataKey="collected" fill="#10b981" name="Collected" radius={[4, 4, 0, 0]} />
-  <Bar dataKey="missed" fill="#ef4444" name="Missed" radius={[4, 4, 0, 0]} />
-  <Bar dataKey="scheduled" fill="#f59e0b" name="Scheduled" radius={[4, 4, 0, 0]} />
-  </BarChart>
-  </ResponsiveContainer>
-  )}
-  </Card>
-
-  <Card className="p-5">
-  <h3 className="font-semibold text-ink mb-4">Collection Status Breakdown</h3>
-  {stats.statusBreakdown.every((s) => s.value === 0) ? (
-  <EmptyState icon={BarChart} title="No data" message="No status data available." />
-  ) : (
-  <ResponsiveContainer width="100%" height={250}>
-  <PieChart>
-  <Pie
-  data={stats.statusBreakdown.filter((s) => s.value > 0)}
-  dataKey="value"
-  nameKey="name"
-  cx="50%"
-  cy="50%"
-  outerRadius={90}
-  label={(entry: any) => `${entry.name}: ${entry.value}`}
-  >
-  {stats.statusBreakdown.filter((s) => s.value > 0).map((entry, i) => (
-  <Cell key={i} fill={entry.color} />
-  ))}
-  </Pie>
-  <Tooltip />
-  </PieChart>
-  </ResponsiveContainer>
-  )}
-  </Card>
-  </div>
-  )}
-
-  {tab === 'map' && (
-  <Card className="p-4">
-  <h3 className="font-semibold text-ink mb-3">Hotspot Map</h3>
-  {hotspotMapMarkers.length === 0 ? (
-  <EmptyState icon={MapPin} title="No hotspots" message="No hotspot locations to display on the map." />
-  ) : (
-  <>
-  <div className="flex gap-3 mb-3 text-xs flex-wrap">
-  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-brick"></span>New</span>
-  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-orange-500"></span>Under Review</span>
-  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-clay"></span>Assigned</span>
-  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-forest"></span>Resolved</span>
-  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-purple-500"></span>Recurring</span>
-  </div>
-  <MapView center={[15.5912, 73.7947]} markers={hotspotMapMarkers} height={400} zoom={14} />
-  </>
-  )}
-  </Card>
+      {insightsView === 'map' && (
+        <div className="bg-white rounded-lg border border-sand p-4">
+          {hotspotMapMarkers.length === 0 ? (
+            <EmptyState icon={MapPin} title="No hotspots" message="No hotspot locations to display on the map." />
+          ) : (
+            <>
+              <div className="flex gap-3 mb-3 text-xs flex-wrap">
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-brick"></span>New</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-orange-500"></span>Under Review</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-clay"></span>Assigned</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-forest"></span>Resolved</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-purple-500"></span>Recurring</span>
+              </div>
+              <MapView center={[15.5912, 73.7947]} markers={hotspotMapMarkers} height={400} zoom={14} />
+            </>
+          )}
+        </div>
+      )}
+    </div>
   )}
 
       {assignModal && assignModal.type !== 'route' && (
@@ -652,39 +704,12 @@ export default function SupervisorDashboard() {
       )}
 
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-xl bg-gray-900 text-white text-sm font-medium shadow-xl">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-xl bg-ink text-paper text-sm font-medium shadow-xl">
           {toast}
         </div>
       )}
     </AppShell>
   );
-}
-
-function StatCard({ icon: Icon, label, value, color }: { icon: any; label: string; value: number; color: string }) {
-  const colors: Record<string, string> = {
-  blue: 'bg-clay/5 text-clay',
-  emerald: 'bg-forest/5 text-forest',
-  red: 'bg-brick/5 text-brick',
-  orange: 'bg-orange-50 text-orange-600',
-  teal: 'bg-moss/10 text-forest',
-  };
-  return (
-  <div className="glass rounded-lg border border-white/50 p-4">
-  <div className="flex items-center gap-2">
-  <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${colors[color]}`}>
-  <Icon className="w-4 h-4" />
-  </div>
-  <div>
-  <p className="text-2xl font-bold text-ink">{value}</p>
-  <p className="text-xs text-ink/40">{label}</p>
-  </div>
-  </div>
-  </div>
-  );
-}
-
-function Badge({ children, color }: { children: React.ReactNode; color: string }) {
-  return <span className={`ml-1 px-1.5 py-0.5 rounded-full ${color} text-white text-[10px] font-bold`}>{children}</span>;
 }
 
 function AssignModal({ type, workers, onClose, onAssign }: {
@@ -790,7 +815,7 @@ function RouteAssignModal({ workerId, workers, onClose, onAssign }: {
         const data = await getHouseholdsInWard(worker.assigned_ward_id);
         if (cancelled) return;
         setHouseholds(data || []);
-        setSelectedIds(new Set((data || []).map((h) => h.id))); // default: everyone selected, supervisor can deselect
+        setSelectedIds(new Set((data || []).map((h) => h.id)));
       } catch (err) {
         if (!cancelled) setFetchError(true);
       } finally {
@@ -880,10 +905,7 @@ function RouteAssignModal({ workerId, workers, onClose, onAssign }: {
             ) : (
               <div className="max-h-48 overflow-y-auto space-y-1 border border-sand rounded-lg p-2">
                 {households.map((h) => (
-                  <label
-                    key={h.id}
-                    className="flex items-start gap-2.5 p-2 rounded-lg hover:bg-sand-light cursor-pointer"
-                  >
+                  <label key={h.id} className="flex items-start gap-2.5 p-2 rounded-lg hover:bg-sand-light cursor-pointer">
                     <input
                       type="checkbox"
                       checked={selectedIds.has(h.id)}
@@ -995,59 +1017,12 @@ function RescheduleModal({ task, workers, onClose, onReschedule }: {
   );
 }
 
-const DAY_ORDER = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-
-function WorkerAreaCard({ worker, routes }: { worker: any; routes: any[] }) {
-  const availableDays = DAY_ORDER.filter((d) => routes.some((r) => r.day_of_week === d));
-  const [selectedDay, setSelectedDay] = useState(availableDays[0] || 'monday');
-  const dayRoutes = routes.filter((r) => r.day_of_week === selectedDay);
-
-  return (
-    <Card className="p-4">
-      <div className="flex items-center gap-3 mb-3">
-        <div className="w-10 h-10 rounded-full bg-clay/10 flex items-center justify-center flex-shrink-0">
-          <span className="font-bold text-clay-dark">{worker.profile?.full_name?.charAt(0)}</span>
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-ink truncate">{worker.profile?.full_name}</p>
-          <p className="text-xs text-ink/40">{worker.assigned_ward?.name ? `Ward: ${worker.assigned_ward.name}` : 'No ward assigned'}</p>
-        </div>
-        {!worker.is_active && <span className="text-xs px-2 py-0.5 rounded-full bg-sand text-ink/50 flex-shrink-0">Inactive</span>}
-      </div>
-      {routes.length === 0 ? (
-        <p className="text-sm text-ink/40">No area/route assigned yet.</p>
-      ) : (
-        <>
-          <select
-            value={selectedDay}
-            onChange={(e) => setSelectedDay(e.target.value)}
-            className="w-full mb-2 px-3 py-2 rounded-lg border border-sand-dark bg-white text-sm capitalize outline-none focus:border-forest"
-          >
-            {availableDays.map((d) => (
-              <option key={d} value={d} className="capitalize">
-                {d.charAt(0).toUpperCase() + d.slice(1)} ({routes.filter((r) => r.day_of_week === d).length})
-              </option>
-            ))}
-          </select>
-          <div className="space-y-2">
-            {dayRoutes.map((r) => (
-              <RouteRow key={r.id} route={r} />
-            ))}
-          </div>
-        </>
-      )}
-    </Card>
-  );
-}
-
 function RouteRow({ route }: { route: any }) {
   const [expanded, setExpanded] = useState(false);
-  const households = (route.route_households || [])
-    .map((rh: any) => rh.household)
-    .filter(Boolean);
+  const households = (route.route_households || []).map((rh: any) => rh.household).filter(Boolean);
 
   return (
-    <div className="p-3 rounded-lg bg-paper">
+    <div className="p-2.5 rounded-lg bg-paper">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-ink capitalize">{route.day_of_week}</p>
