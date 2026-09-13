@@ -1,0 +1,196 @@
+diff --git a/src/pages/household/HouseholdDashboard.tsx b/src/pages/household/HouseholdDashboard.tsx
+index 42eab54..22ce6e5 100644
+--- a/src/pages/household/HouseholdDashboard.tsx
++++ b/src/pages/household/HouseholdDashboard.tsx
+@@ -488,7 +488,7 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
+     const { error } = await supabase.storage.from('hotspot-photos').upload(fileName, photoFile);
+     if (error) {
+       console.error('Upload failed:', error);
+-      return undefined;
++      throw new Error('photo_upload_failed');
+     }
+     const { data } = supabase.storage.from('hotspot-photos').getPublicUrl(fileName);
+     return data.publicUrl;
+@@ -518,7 +518,11 @@ function HotspotModal({ profileId, wardId, defaultLat, defaultLng, onClose, onSu
+       onClose();
+     } catch (err) {
+       console.error(err);
+-      setError('Could not submit your report. Check your connection and try again.');
++      if (err instanceof Error && err.message === 'photo_upload_failed') {
++        setError('Could not upload your photo. Check your connection and try again, or remove the photo to submit without it.');
++      } else {
++        setError('Could not submit your report. Check your connection and try again.');
++      }
+     } finally {
+       setSubmitting(false);
+     }
+diff --git a/src/pages/supervisor/SupervisorDashboard.tsx b/src/pages/supervisor/SupervisorDashboard.tsx
+index 1aed772..d7b84fe 100644
+--- a/src/pages/supervisor/SupervisorDashboard.tsx
++++ b/src/pages/supervisor/SupervisorDashboard.tsx
+@@ -29,7 +29,7 @@ export default function SupervisorDashboard() {
+   const [todayTasks, setTodayTasks] = useState<any[]>([]);
+   const [routes, setRoutes] = useState<any[]>([]);
+   const [missedQueue, setMissedQueue] = useState<any[]>([]);
+-  const [hotspotQueue, setHotspotQueue] = useState<HotspotReport[]>([]);
++  const [hotspotQueue, setHotspotQueue] = useState<(HotspotReport & { cleanup_assignments?: any[] })[]>([]);
+   const [ewasteReqs, setEwasteReqs] = useState<any[]>([]);
+   const [workers, setWorkers] = useState<any[]>([]);
+   const [stats, setStats] = useState<{ daily: any[]; statusBreakdown: any[] }>({ daily: [], statusBreakdown: [] });
+@@ -464,6 +464,22 @@ export default function SupervisorDashboard() {
+   </div>
+   </div>
+   </div>
++  {(h.photo_url || h.cleanup_assignments?.[0]?.completion_photo_url) && (
++  <div className="flex gap-2 mb-2">
++  {h.photo_url && (
++  <a href={h.photo_url} target="_blank" rel="noopener noreferrer" className="block">
++  <img src={h.photo_url} alt="Reported dump" className="w-20 h-20 object-cover rounded-lg border border-sand-dark" />
++  <p className="text-[10px] text-ink/40 mt-0.5 text-center">Reported</p>
++  </a>
++  )}
++  {h.cleanup_assignments?.[0]?.completion_photo_url && (
++  <a href={h.cleanup_assignments[0].completion_photo_url} target="_blank" rel="noopener noreferrer" className="block">
++  <img src={h.cleanup_assignments[0].completion_photo_url} alt="Cleanup evidence" className="w-20 h-20 object-cover rounded-lg border border-forest" />
++  <p className="text-[10px] text-forest mt-0.5 text-center">Cleaned</p>
++  </a>
++  )}
++  </div>
++  )}
+   {h.latitude && h.longitude && (
+   <p className="text-xs text-ink/40 mb-2">Location: {h.latitude.toFixed(4)}, {h.longitude.toFixed(4)}</p>
+   )}
+diff --git a/src/pages/worker/WorkerDashboard.tsx b/src/pages/worker/WorkerDashboard.tsx
+index 4c0cb6d..c630ad0 100644
+--- a/src/pages/worker/WorkerDashboard.tsx
++++ b/src/pages/worker/WorkerDashboard.tsx
+@@ -147,10 +147,10 @@ export default function WorkerDashboard() {
+   const total = tasks.length;
+   const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+ 
+-  const mapMarkers = tasks
++  const taskMarkers = tasks
+   .filter((t) => t.household?.latitude && t.household?.longitude)
+   .map((t) => ({
+-  id: t.id,
++  id: `task-${t.id}`,
+   latitude: t.household.latitude,
+   longitude: t.household.longitude,
+   title: t.household.address_line,
+@@ -158,6 +158,30 @@ export default function WorkerDashboard() {
+   popup: `<strong>${t.household.address_line}</strong><br/>${t.status.replace(/_/g, ' ')}`,
+   }));
+ 
++  const cleanupMarkers = cleanups
++  .filter((c) => c.hotspot?.latitude && c.hotspot?.longitude)
++  .map((c) => ({
++  id: `cleanup-${c.id}`,
++  latitude: c.hotspot.latitude,
++  longitude: c.hotspot.longitude,
++  title: 'Hotspot Cleanup',
++  color: '#8b5cf6',
++  popup: `<strong>Hotspot Cleanup</strong><br/>${c.hotspot.description || 'No description'}<br/>Urgency: ${c.hotspot.urgency}`,
++  }));
++
++  const ewasteMarkers = ewasteRequests
++  .filter((e) => e.household?.latitude && e.household?.longitude)
++  .map((e) => ({
++  id: `ewaste-${e.id}`,
++  latitude: e.household.latitude,
++  longitude: e.household.longitude,
++  title: 'E-Waste Pickup',
++  color: '#0ea5e9',
++  popup: `<strong>E-Waste Pickup</strong><br/>${e.household.address_line}<br/>${e.item_description}`,
++  }));
++
++  const mapMarkers = [...taskMarkers, ...cleanupMarkers, ...ewasteMarkers];
++
+   const tabs: [Tab, string, typeof RouteIcon][] = [
+   ['tasks', 'Tasks', RouteIcon],
+   ['recovery', 'Recovery', RefreshCw],
+@@ -376,13 +400,15 @@ export default function WorkerDashboard() {
+   <Card className="p-4">
+   <h3 className="font-semibold text-ink mb-3">Route Map</h3>
+   {mapMarkers.length === 0 ? (
+-  <EmptyState icon={MapPin} title="No locations" message="No household locations available to display." />
++  <EmptyState icon={MapPin} title="No locations" message="No locations available to display right now." />
+   ) : (
+   <>
+-  <div className="flex gap-3 mb-3 text-xs">
++  <div className="flex gap-3 mb-3 text-xs flex-wrap">
+   <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-forest"></span>Collected</span>
+   <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-clay/50"></span>Pending</span>
+   <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-brick"></span>Missed</span>
++  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full" style={{ backgroundColor: '#8b5cf6' }}></span>Hotspot Cleanup</span>
++  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full" style={{ backgroundColor: '#0ea5e9' }}></span>E-Waste</span>
+   </div>
+   <MapView center={[15.5912, 73.7947]} markers={mapMarkers} height={400} zoom={15} />
+   </>
+@@ -543,25 +569,32 @@ function CleanupModal({ onClose, onComplete }: { onClose: () => void; onComplete
+   const [photoFile, setPhotoFile] = useState<File | null>(null);
+   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+   const [uploading, setUploading] = useState(false);
++  const [error, setError] = useState<string | null>(null);
+ 
+   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+     const file = e.target.files?.[0];
+     if (file) {
+       setPhotoFile(file);
+       setPhotoPreview(URL.createObjectURL(file));
++      setError(null);
+     }
+   };
+ 
+   const handleComplete = async () => {
+     setUploading(true);
++    setError(null);
+     let photoUrl: string | undefined;
+     if (photoFile) {
+       const fileName = `cleanup_${Date.now()}.${photoFile.name.split('.').pop()}`;
+-      const { error } = await supabase.storage.from('cleanup-photos').upload(fileName, photoFile);
+-      if (!error) {
+-        const { data } = supabase.storage.from('cleanup-photos').getPublicUrl(fileName);
+-        photoUrl = data.publicUrl;
++      const { error: uploadError } = await supabase.storage.from('cleanup-photos').upload(fileName, photoFile);
++      if (uploadError) {
++        console.error('Upload failed:', uploadError);
++        setUploading(false);
++        setError('Could not upload your photo. Check your connection and try again, or remove the photo to complete without it.');
++        return;
+       }
++      const { data } = supabase.storage.from('cleanup-photos').getPublicUrl(fileName);
++      photoUrl = data.publicUrl;
+     }
+     setUploading(false);
+     onComplete(photoUrl);
+@@ -595,6 +628,9 @@ function CleanupModal({ onClose, onComplete }: { onClose: () => void; onComplete
+               <input type="file" accept="image/*" onChange={handlePhotoSelect} className="hidden" />
+             </label>
+           )}
++          {error && (
++            <p className="text-sm text-brick bg-brick/10 rounded-lg px-3 py-2">{error}</p>
++          )}
+           <button
+             onClick={handleComplete}
+             disabled={uploading}
+diff --git a/src/services/supervisorService.ts b/src/services/supervisorService.ts
+index 94c0a33..170b923 100644
+--- a/src/services/supervisorService.ts
++++ b/src/services/supervisorService.ts
+@@ -120,11 +120,14 @@ export async function getHotspotQueue(municipalityId: string) {
+ 
+   const { data, error } = await supabase
+     .from('hotspot_reports')
+-    .select('*')
++    .select(`
++      *,
++      cleanup_assignments(id, status, completion_photo_url, completed_at)
++    `)
+     .in('ward_id', wardIds)
+     .order('created_at', { ascending: false });
+   if (error) throw error;
+-  return data as HotspotReport[];
++  return data as (HotspotReport & { cleanup_assignments: any[] })[];
+ }
+ 
+ export async function getEwasteRequests(municipalityId: string) {
