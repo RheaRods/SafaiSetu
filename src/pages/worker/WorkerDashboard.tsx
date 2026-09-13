@@ -352,6 +352,11 @@ export default function WorkerDashboard() {
                   </div>
                   <StatusBadge status={c.status} />
                 </div>
+                {c.hotspot?.photo_url && (
+  <a href={c.hotspot.photo_url} target="_blank" rel="noopener noreferrer" className="block mb-2">
+    <img src={c.hotspot.photo_url} alt="Reported garbage pile" className="w-24 h-24 object-cover rounded-lg border border-sand-dark" />
+  </a>
+)}
                 <button
                   onClick={() => setCleanupModal(c.id)}
                   className="mt-2 w-full flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 text-white font-medium py-2.5 rounded-lg transition"
