@@ -29,7 +29,7 @@ export default function SupervisorDashboard() {
   const [todayTasks, setTodayTasks] = useState<any[]>([]);
   const [routes, setRoutes] = useState<any[]>([]);
   const [missedQueue, setMissedQueue] = useState<any[]>([]);
-  const [hotspotQueue, setHotspotQueue] = useState<HotspotReport[]>([]);
+  const [hotspotQueue, setHotspotQueue] = useState<(HotspotReport & { cleanup_assignments?: any[] })[]>([]);
   const [ewasteReqs, setEwasteReqs] = useState<any[]>([]);
   const [workers, setWorkers] = useState<any[]>([]);
   const [stats, setStats] = useState<{ daily: any[]; statusBreakdown: any[] }>({ daily: [], statusBreakdown: [] });
@@ -364,29 +364,7 @@ export default function SupervisorDashboard() {
   ) : (
   workers.map((w) => {
   const workerRoutes = routes.filter((r) => r.worker_id === w.id);
-  return (
-  <Card key={w.id} className="p-4">
-  <div className="flex items-center gap-3 mb-3">
-  <div className="w-10 h-10 rounded-full bg-clay/10 flex items-center justify-center flex-shrink-0">
-  <span className="font-bold text-clay-dark">{w.profile?.full_name?.charAt(0)}</span>
-  </div>
-  <div className="flex-1 min-w-0">
-  <p className="font-semibold text-ink truncate">{w.profile?.full_name}</p>
-  <p className="text-xs text-ink/40">{w.assigned_ward?.name ? `Ward: ${w.assigned_ward.name}` : 'No ward assigned'}</p>
-  </div>
-  {!w.is_active && <span className="text-xs px-2 py-0.5 rounded-full bg-sand text-ink/50 flex-shrink-0">Inactive</span>}
-  </div>
-  {workerRoutes.length === 0 ? (
-  <p className="text-sm text-ink/40">No area/route assigned yet.</p>
-  ) : (
-  <div className="space-y-2">
-  {workerRoutes.map((r) => (
-  <RouteRow key={r.id} route={r} />
-  ))}
-  </div>
-  )}
-  </Card>
-  );
+  return <WorkerAreaCard key={w.id} worker={w} routes={workerRoutes} />;
   })
   )}
   </div>
@@ -464,6 +442,22 @@ export default function SupervisorDashboard() {
   </div>
   </div>
   </div>
+  {(h.photo_url || h.cleanup_assignments?.[0]?.completion_photo_url) && (
+  <div className="flex gap-2 mb-2">
+  {h.photo_url && (
+  <a href={h.photo_url} target="_blank" rel="noopener noreferrer" className="block">
+  <img src={h.photo_url} alt="Reported dump" className="w-20 h-20 object-cover rounded-lg border border-sand-dark" />
+  <p className="text-[10px] text-ink/40 mt-0.5 text-center">Reported</p>
+  </a>
+  )}
+  {h.cleanup_assignments?.[0]?.completion_photo_url && (
+  <a href={h.cleanup_assignments[0].completion_photo_url} target="_blank" rel="noopener noreferrer" className="block">
+  <img src={h.cleanup_assignments[0].completion_photo_url} alt="Cleanup evidence" className="w-20 h-20 object-cover rounded-lg border border-forest" />
+  <p className="text-[10px] text-forest mt-0.5 text-center">Cleaned</p>
+  </a>
+  )}
+  </div>
+  )}
   {h.latitude && h.longitude && (
   <p className="text-xs text-ink/40 mb-2">Location: {h.latitude.toFixed(4)}, {h.longitude.toFixed(4)}</p>
   )}
@@ -998,6 +992,51 @@ function RescheduleModal({ task, workers, onClose, onReschedule }: {
         </div>
       </div>
     </div>
+  );
+}
+
+const DAY_ORDER = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+function WorkerAreaCard({ worker, routes }: { worker: any; routes: any[] }) {
+  const availableDays = DAY_ORDER.filter((d) => routes.some((r) => r.day_of_week === d));
+  const [selectedDay, setSelectedDay] = useState(availableDays[0] || 'monday');
+  const dayRoutes = routes.filter((r) => r.day_of_week === selectedDay);
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="w-10 h-10 rounded-full bg-clay/10 flex items-center justify-center flex-shrink-0">
+          <span className="font-bold text-clay-dark">{worker.profile?.full_name?.charAt(0)}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-ink truncate">{worker.profile?.full_name}</p>
+          <p className="text-xs text-ink/40">{worker.assigned_ward?.name ? `Ward: ${worker.assigned_ward.name}` : 'No ward assigned'}</p>
+        </div>
+        {!worker.is_active && <span className="text-xs px-2 py-0.5 rounded-full bg-sand text-ink/50 flex-shrink-0">Inactive</span>}
+      </div>
+      {routes.length === 0 ? (
+        <p className="text-sm text-ink/40">No area/route assigned yet.</p>
+      ) : (
+        <>
+          <select
+            value={selectedDay}
+            onChange={(e) => setSelectedDay(e.target.value)}
+            className="w-full mb-2 px-3 py-2 rounded-lg border border-sand-dark bg-white text-sm capitalize outline-none focus:border-forest"
+          >
+            {availableDays.map((d) => (
+              <option key={d} value={d} className="capitalize">
+                {d.charAt(0).toUpperCase() + d.slice(1)} ({routes.filter((r) => r.day_of_week === d).length})
+              </option>
+            ))}
+          </select>
+          <div className="space-y-2">
+            {dayRoutes.map((r) => (
+              <RouteRow key={r.id} route={r} />
+            ))}
+          </div>
+        </>
+      )}
+    </Card>
   );
 }
 
